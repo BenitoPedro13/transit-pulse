@@ -11,11 +11,13 @@ It's also a portfolio case study in distributed, data-heavy real-time systems:
 - rebuildable projections;
 - a static replay that keeps working after the live backend is switched off.
 
-**Status: planning — no code yet.**
+**Status: planning — no code yet.** The source inventory is verified (2026-10-12): Rio's
+city buses and BRT are live; rail, metro, tram, ferries, intercity and Niterói buses have no
+public machine-readable data.
 
 ## Docs
 
 - [`CLAUDE.md`](CLAUDE.md): workflow, decisions, invariants, tests
 - [`docs/architecture.md`](docs/architecture.md): design skeleton and open questions
-- [`docs/research/README.md`](docs/research/README.md): the source inventory (unverified)
+- [`docs/research/README.md`](docs/research/README.md): the verified source inventory and samples
 - [`docs/tasks/`](docs/tasks/): task documents

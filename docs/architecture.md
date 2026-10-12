@@ -1,9 +1,10 @@
 # Architecture — Transit Pulse
 
-> **Status (2026-10-12): skeleton.** This document records decisions made in the planning
-> conversation. Nothing in it has been checked against a real source yet. Every provider fact
-> is `[VERIFY]` until `docs/research/` confirms it with a captured sample. Sections get filled
-> in as task documents resolve them.
+> **Status (2026-10-12): skeleton, with the source inventory resolved.** This document
+> records decisions made in the planning conversation. Provider facts in §2–§4, §6–§8 and
+> §10 were checked against live sources on 2026-10-12 (`docs/research/README.md`, with
+> samples in `docs/research/samples/`). Anything still unconfirmed is marked `[VERIFY]`.
+> Sections get filled in as task documents resolve them.
 
 ## 1. Problem statement and scope
 
@@ -40,7 +41,12 @@ Within `live`, these are separate states, never collapsed into zero:
 
 - "no vehicles reported";
 - "fetch failed";
-- "stale beyond N minutes" `[VERIFY: pick N per source from its update interval]`.
+- "stale beyond N minutes". Measured on 2026-10-12, a moving bus reports every ~30 s
+  (p50) and reaches the ITS API with a lag of p99 232 s. A vehicle whose last
+  `event_time` is more than **5 minutes** old is therefore stale. *Proposed*, to be
+  confirmed in the phase 1 task. Snapshot feeds (the BRT `sonda` data) also carry vehicles
+  parked for days, with timestamps up to years old, so this cut-off is required, not
+  optional.
 
 ## 3. The canonical event (draft)
 
@@ -55,27 +61,33 @@ inventory has real samples.**
 | `operator` | Operator identifier | our own stable slug, not the provider's string |
 | `authority` | `city` / `state` | who regulates it |
 | `source_kind` | `live` / `scheduled` | invariant 6 |
-| `vehicle` | Vehicle identifier as the provider gives it | `[VERIFY per source: stable across polls?]` |
-| `line` | Line/route identifier | `[VERIFY per source: joins to GTFS route_id?]` |
-| `lat`, `lon` | WGS84 position | `[VERIFY per source: format and precision]` |
-| `event_time` | When the provider says the position was taken | `[VERIFY per source: time zone / epoch]` |
+| `vehicle` | Vehicle identifier as the provider gives it | stable across polls and identical across all three SMTR paths (verified 2026-10-12). Formats differ by system: SPPO `A29001`, Sistema RIO `A2-003`, BRT `901008` |
+| `line` | Line/route identifier | SMTR gives both a GTFS `route_id` (≈99% join) and `servico` = GTFS `route_short_name` (85–100% join; misses are `ESPECIAL`, `LECD…`, `0`). `trip_id` joins only ≈44% for buses, because the public GTFS is stale (research §2) |
+| `lat`, `lon` | WGS84 position | decimal degrees, 6–7 decimals (GTFS-RT: float32) |
+| `event_time` | When the provider says the position was taken | ITS API: ISO 8601, real UTC. GTFS-RT: POSIX seconds. Legacy BRT: epoch ms, UTC. **Legacy SPPO: ISO with a `Z` that is false; it's America/Sao_Paulo (UTC−3)** |
 | `received_time` | When our adapter fetched it | ours, UTC |
 
 Identity and format are decided in §10 (#7): `(operator, vehicle, event_time)` as the primary
-key, and JSON on a versioned topic with a JSON Schema contract. Still open: speed and heading,
-if sources carry them.
+key, and JSON on a versioned topic with a JSON Schema contract.
+
+- **Speed and heading:** every live SMTR path carries them (km/h and degrees). GTFS-RT BRT
+  sends some bearings above 360. Whether they join the canonical event is still open.
+- **Identity collides across suppliers (2026-10-12).** In the ITS API, two AVL suppliers
+  (`conecta` and `zirix`) report the same SPPO `id_veiculo` from two different devices. 3,114
+  `(vehicle, datetime)` pairs exist in both, with different positions. See §10 #9; it's
+  for the user to decide.
 
 ## 4. Sources and phases
 
-The full per-operator inventory is `docs/research/README.md`. Expected tiers below are from
-memory and **unverified**.
+The full per-operator inventory is `docs/research/README.md`. Tiers were verified against
+live sources on 2026-10-12.
 
-| Phase | Scope | Expected tier | Deliverable |
+| Phase | Scope | Verified tier | Deliverable |
 |---|---|---|---|
-| 1 | Rio city buses (SPPO), BRT | live `[VERIFY]` | the pipeline, the map, delays by line |
-| 2 | SuperVia, MetrôRio, VLT Carioca, Barcas | scheduled `[VERIFY]` | a scheduled layer, a per-operator coverage panel |
-| 3 | Historical Rio data | — | a backfill from data.rio on BigQuery `[VERIFY: does it exist, which tables, what cost]`, plus replay |
-| 4 | Niterói buses, DETRO-RJ intercity buses, the rest of the metro area; then São Paulo; then GTFS-RT cities | `[VERIFY]` | more adapters, same canonical event |
+| 1 | Rio city buses (SPPO and the new "Sistema RIO"), BRT | **live**: three public, keyless SMTR paths (ITS JSON API, GTFS-RT, legacy JSON), all beta | the pipeline, the map, delays by line. **99.5% of GTFS trips are frequency-based, so "delay" means headway adherence**, not lateness against a timetable |
+| 2 | SuperVia (now TrensRJ), MetrôRio, VLT Carioca, Barcas (now Barcas Rio) | **none**: no official GTFS anywhere, only HTML timetables. ⚠ **This contradicts the phase plan** (§10 #11) | a per-operator coverage panel; the scheduled layer depends on #11 |
+| 3 | Historical Rio data | historical: `rj-smtr` on BigQuery exists (`monitoramento.gps_onibus_*`, `br_rj_riodejaneiro_veiculos.gps_sppo`, …). Public access `[VERIFY: needs a GCP account]` | a backfill, plus replay. ≈ 2.1–2.4 GB scanned per day of every supplier; 1 TiB/month is free, then USD 6.25/TiB |
+| 4 | Niterói buses (none: route geometry only), DETRO-RJ intercity buses (none: an HTML lookup form), the rest of the metro area; then São Paulo; then GTFS-RT cities | none / `[VERIFY]` | more adapters, same canonical event |
 
 ## 5. System shape
 
@@ -114,8 +126,9 @@ current Spot price in us-east-1 before provisioning]`.
 - **Data** lives on a separate gp3 EBS volume that survives instance replacement.
 - **Not used:** NAT Gateway, ALB, MSK, RDS, EKS.
 - **An AWS Budgets alarm on day one,** kept outside the IaC so it survives a destroy.
-- **Raw log on S3** with a lifecycle policy to a cheaper storage class
-  `[VERIFY: which class, and its retrieval cost for replay exports]`.
+- **Raw log on S3** with a lifecycle policy to Standard-IA after 30 days. Its retrieval fee
+  is $0.01/GB, so re-reading a whole ITS day for a replay export costs about $0.005
+  (§8; prices verified 2026-10-12).
 
 | Item | renewable-pulse figure | Monthly |
 |---|---|---|
@@ -129,8 +142,15 @@ current Spot price in us-east-1 before provisioning]`.
 TimescaleDB at about 240 MiB on the same 2 GiB box. PostGIS, a larger write rate and deck.gl
 tiles may not fit `[VERIFY: measure locally once phase 1 runs; the fallback is t4g.medium]`.
 
-**Raw volume is unknown** `[VERIFY: bytes per poll × polls per day per source, from the
-captured samples]`. Retention (§8) is provisional until then.
+**Raw volume (measured 2026-10-12, a mid-morning public holiday; re-measure in phase 1):**
+
+- ITS API, every supplier: ≈ **529 MB/day** gzip.
+- GTFS-RT: ≈ **128 MB/day** (bus + BRT).
+- Legacy SPPO + BRT: ≈ 309 MB/day.
+- About 10.9 k positions/min (≈ 180 events/s, ≈ 15.7 M rows/day before de-duplication) if
+  the ITS API is ingested.
+- S3 storage for the whole run is about USD 3. Per-poll objects would cost more in requests
+  than in storage, so the raw log should batch hourly (research "Raw volume").
 
 ## 7. The ending: replay first
 
@@ -168,6 +188,10 @@ that S3 does:
   replay task.
 - **Everything else is rebuildable** (invariant 2): database rows and aggregates are
   recomputed from the raw log in the new account. They're never migrated by hand.
+- **Size of the move (estimated 2026-10-12):** after a ~4-month (122-day) run the raw log is
+  about **65 GB** gzip-compressed with the ITS API alone, or about **80 GB** with GTFS-RT
+  kept as well. Downloading it fits AWS's 100 GB/month free egress if done in one month.
+  Re-uploading for the replay needs only the chosen days, about 0.5 GB each.
 
 ## 8. Retention (decided 2026-10-12)
 
@@ -175,8 +199,8 @@ Provisional numbers, to be re-checked once the source inventory measures the rea
 
 | Data | Where | Kept | Notes |
 |---|---|---|---|
-| Raw provider responses | S3, compressed; durable copy on the user's machine (§7.1) | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back `[VERIFY: current S3 prices and IA's 30-day minimum and per-GB retrieval fee]` |
-| Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table |
+| Raw provider responses | S3, compressed; durable copy on the user's machine (§7.1) | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back. **Confirmed 2026-10-12** (AWS Price List, us-east-1): Standard $0.023/GB-mo, IA $0.0125/GB-mo plus $0.01/GB retrieval, a 30-day minimum and a **128 KB minimum object size**. So objects must be batched (one per source per hour) for IA to pay off. The total is ≈ 65–80 GB after 4 months |
+| Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table. With the ITS API that's ≈ 47 M rows (≈ 15.7 M/day before de-duplication) `[VERIFY in phase 1: bytes/row on disk, which decides whether 3 days fits the t4g.small's volume]` |
 | Per line, 5-minute buckets | TimescaleDB continuous aggregate | **forever** | active vehicles, median and p90 delay, observed headway (the exact list is fixed in the phase 1 task) |
 | Per line, hourly and daily rollups | continuous aggregates | **forever** | |
 | Disk guard | CloudWatch | — | alarm at 70% of the data volume (renewable-pulse `abb09de`) |
@@ -204,5 +228,9 @@ verified.
 | 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **decided** (user, 2026-10-12) |
 | 5 | Retention windows | §8 | **decided** |
 | 6 | Replay days | §9 | **decided** |
-| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Identity depends on vehicle IDs being stable across polls `[VERIFY in the source inventory]` |
+| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Vehicle IDs **are stable** across polls and across SMTR's paths, and a parked vehicle repeats its `event_time` in snapshot feeds (verified 2026-10-12). **But see #9:** two suppliers collide on the same key |
 | 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
+| 9 | Identity across suppliers | `conecta` and `zirix` both report the same SPPO bus (2,072 vehicles) from two devices with different positions, so `(operator, vehicle, event_time)` would drop real observations. Options: add the supplier to the identity, or pick one supplier per vehicle | **open**: the user decides (raised 2026-10-12) |
+| 10 | Which live path for phase 1 | (a) ITS API: every supplier and the whole fleet, per-minute immutable windows, 24 h backfill, ≈ 529 MB/day; (b) GTFS-RT: standard, ≈ 128 MB/day, but only trip-matched vehicles (≈ 46% of buses); (c) legacy JSON: undocumented, a false `Z` on SPPO times, conecta only. Recommendation: (a) as the source of truth, with (b) optionally recorded as a cross-check. All three are beta | **open**: the user decides (raised 2026-10-12) |
+| 11 | Phase 2 without official GTFS | no official GTFS exists for rail, metro, VLT or ferries (research §4–§7). Options: show them as `none` in the coverage panel only, or hand-build GTFS from the operators' published HTML timetables, labelled as derived by us | **open**: the user decides (raised 2026-10-12) |
+| 12 | Static GTFS freshness | the public SMTR feed hasn't changed since 2026-06-10, has `feed_end_date` 2026-12-31, and live `trip_id`s join only ≈44%. Shapes and `route_id`s still join ≈98–99%. Options: ask SMTR (`infra.smtr@prefeitura.rio`) for the current feed, or rely on `route_id`/`shape_id` only | **open** (raised 2026-10-12) |

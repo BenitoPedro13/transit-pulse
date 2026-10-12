@@ -23,21 +23,21 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): planning, no code yet.** This repo holds docs only:
-`docs/tasks/TASK-repo-setup.md`. The next task is `docs/tasks/TASK-source-inventory.md`,
-which verifies every Rio source live and captures real samples into `docs/research/samples/`.
-Read in this order:
+**Status (2026-10-12): planning, no code yet.** This repo holds docs only.
+`docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
+samples are in `docs/research/samples/`. Four questions it raised are open for the user
+(`docs/architecture.md` §10 #9–#12). Read in this order:
 
-1. `docs/research/README.md`: the source inventory, one row per operator. **Every cell is
-   `[VERIFY]` until that task resolves it.**
+1. `docs/research/README.md`: the verified source inventory, one row per operator, plus
+   measured volumes. Its "Findings that contradict or change the plan" section comes first.
 2. `docs/architecture.md`: decisions, the canonical-event draft, phases, hosting and cost,
    the replay-first ending, and open questions.
 
 ### Decisions already made (user, 2026-10-12). Don't reopen them
 
 - **Rio first.**
-  - Start with the city's buses (SPPO) and BRT, which are expected to have live GPS feeds
-    `[VERIFY]`.
+  - Start with the city's buses (SPPO) and BRT. Both have live GPS feeds: three public,
+    keyless SMTR paths, all labelled beta (verified 2026-10-12, research §1).
   - Then add the whole metro area, including **state-run operators**: SuperVia (trains),
     MetrôRio, VLT Carioca, the Barcas ferries, intercity buses (DETRO-RJ) and Niterói's city
     buses.
@@ -53,8 +53,10 @@ Read in this order:
 - **Phases.**
   1. Rio buses and BRT live: the pipeline, the map, and delays by line.
   2. Static GTFS for rail and ferries: a scheduled layer and a per-operator coverage panel.
-  3. Historical backfill from Rio's public data lake (data.rio on BigQuery `[VERIFY]`), plus
-     replay.
+     ⚠ No official GTFS exists for rail, metro, VLT or ferries (verified 2026-10-12). How
+     phase 2 proceeds is open: `docs/architecture.md` §10 #11.
+  3. Historical backfill from Rio's public data lake (`rj-smtr` on BigQuery: it exists;
+     public access `[VERIFY: needs a GCP account]`), plus replay.
   4. Niterói and the rest of the metro area, then São Paulo, then GTFS-RT cities.
 - **Hosting on AWS, as cheap as possible.**
   - It copies renewable-pulse's pattern (`renewable-pulse/docs/tasks/TASK-aws-infra.md`): one
@@ -132,7 +134,9 @@ tool's current docs before installing (§2.0).
    - Events have a deterministic identity (e.g. operator + vehicle + `event_time`).
 4. **Be a polite client to every provider.**
    - Poll no faster than the source updates.
-   - Use conditional requests where the provider supports them `[VERIFY per source]`.
+   - Use conditional requests where the provider supports them. Verified 2026-10-12:
+     SMTR's static GTFS and GTFS-RT honour `ETag` and `Last-Modified`; the ITS API sends
+     no validators. Details per source are in `docs/research/README.md`.
    - Keep a hard request budget per source and back off on 4xx/5xx.
    - Never proxy our readers straight through to a provider.
 5. **Readers never touch the ingestion path.**
