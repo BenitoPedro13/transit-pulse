@@ -2,10 +2,15 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { formatCount } from "@/hooks/use-latest-vehicles";
-import { matchLines, useLineIndex, useVehiclesOfLine, type LineEntry } from "@/hooks/use-lines";
+import { formatCount, type VehicleRow } from "@/hooks/use-latest-vehicles";
+import { matchLines, type LineEntry, type LineIndex } from "@/hooks/use-lines";
 
 type Props = {
+  // The lines and the selected line's buses: the newest minute live, or the minute under the playhead in
+  // replay. `when` names that moment in the empty-state sentences.
+  index: LineIndex | undefined;
+  buses: VehicleRow[];
+  when: string;
   linha: string | null;
   onibus: string | null;
   onSelectLine: (line: string) => void;
@@ -50,9 +55,7 @@ function LineGroup({ title, lines, linha, onSelect }: { title: string; lines: Li
   );
 }
 
-export default function PanelLinhas({ linha, onibus, onSelectLine, onClearLine, onSelectBus }: Props) {
-  const index = useLineIndex();
-  const buses = useVehiclesOfLine(linha);
+export default function PanelLinhas({ index, buses, when, linha, onibus, onSelectLine, onClearLine, onSelectBus }: Props) {
   const [query, setQuery] = useState("");
 
   if (!index) return <p className="text-sm text-neblina">Carregando as linhas…</p>;
@@ -76,7 +79,7 @@ export default function PanelLinhas({ linha, onibus, onSelectLine, onClearLine, 
             </Button>
           </div>
           {buses.length === 0 ? (
-            <p className="text-sm text-neblina">A linha {linha} não está no último minuto gravado.</p>
+            <p className="text-sm text-neblina">A linha {linha} não está {when}.</p>
           ) : (
             <ul className="flex flex-wrap gap-1">
               {buses.map((b) => (
@@ -111,7 +114,7 @@ export default function PanelLinhas({ linha, onibus, onSelectLine, onClearLine, 
       </div>
 
       {matches.length === 0 ? (
-        <p className="text-sm text-neblina">Nenhuma linha começa com “{q}” no último minuto gravado.</p>
+        <p className="text-sm text-neblina">Nenhuma linha começa com “{q}” {when}.</p>
       ) : (
         <div className="flex flex-col gap-3">
           <LineGroup title="BRT" lines={brt} linha={linha} onSelect={onSelectLine} />

@@ -38,18 +38,22 @@ export type VehicleRow = Vehicle & {
   ageSeconds: number | null;
 };
 
-export type LatestVehicles = { snapshot: Snapshot; rows: VehicleRow[] };
+export type LatestVehicles = { snapshot: Snapshot; rows: VehicleRow[]; labels: Map<string, string> };
 
 // A snapshot whose newest minute with positions is older than this is not live.
 export const LIVE_MAX_AGE_MS = 5 * 60 * 1000;
 
 const EM_DASH = "—";
 
+// operator id -> the name the screen shows. An operator with no entry shows its id, never a guessed name.
+export function operatorLabels(snapshot: Snapshot): Map<string, string> {
+  return new Map(snapshot.coverage.map((c) => [c.operator, c.label]));
+}
+
 export function toRows(snapshot: Snapshot): VehicleRow[] {
-  const labels = new Map(snapshot.coverage.map((c) => [c.operator, c.label]));
+  const labels = operatorLabels(snapshot);
   return snapshot.vehicles.map((v) => ({
     ...v,
-    // An operator with no coverage entry shows its id, never a guessed name.
     operatorLabel: labels.get(v.operator) ?? v.operator,
     ageSeconds: ageSeconds(v.event_time, snapshot.as_of_minute),
   }));
@@ -96,9 +100,9 @@ export function formatTotal(vehicles: number, operators: number): string {
   return `${v} ${vehicles === 1 ? "veículo" : "veículos"} de ${operators} ${operators === 1 ? "operador" : "operadores"}`;
 }
 
-// Local wall-clock time; timeZone is only for tests.
-export function formatClock(iso: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
+// Local wall-clock time; timeZone is only for tests. With seconds: "12:46:31".
+export function formatClock(iso: string, timeZone?: string, seconds = false): string {
+  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined, timeZone }).format(new Date(iso));
 }
 
 // A prefix match, case-insensitive: typing "45" finds 457 and 458. An empty filter keeps everything.
@@ -167,7 +171,7 @@ export const snapshotQueryOptions = queryOptions({
 export const latestVehiclesQueryOptions = queryOptions({
   ...snapshotQueryOptions,
   // Rows are derived once per response; select is a module-level function so its result is cached.
-  select: (snapshot): LatestVehicles => ({ snapshot, rows: toRows(snapshot) }),
+  select: (snapshot): LatestVehicles => ({ snapshot, rows: toRows(snapshot), labels: operatorLabels(snapshot) }),
 });
 
 export function useLatestVehicles() {

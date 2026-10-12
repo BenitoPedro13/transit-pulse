@@ -11,6 +11,7 @@ export type DashboardState = DashboardParams & {
   clearBus: () => void;
   setLinha: (line: string | null) => void;
   setCor: (cor: ColorBy) => void;
+  setT: (t: string | null) => void;
 };
 
 // The one place that reads and writes the dashboard's URL. Must render under a <Suspense>:
@@ -35,5 +36,6 @@ export function useDashboardParams(): DashboardState {
     clearBus: () => update({ onibus: null }),
     setLinha: (line) => update({ linha: line }),
     setCor: (cor) => update({ cor }),
+    setT: (t) => update({ t }),
   };
 }

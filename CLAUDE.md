@@ -39,7 +39,7 @@ request never queries), the Rio basemap (`make tiles`), vehicles on MapLibre + d
 Table list, and a status strip that tells live, stale and failed apart; measurements in its §7. `docs/tasks/TASK-dashboard.md` (D1) is
 done: the screen became a full-bleed dashboard with the letreiro identity, line and bus selection,
 speed colours and the view in the URL; its results (contrast table, axe, fps) are in its §6. The time
-machine (D2, `docs/tasks/TASK-time-machine.md`) is next. Of the four questions the inventory raised
+machine (D2, `docs/tasks/TASK-time-machine.md`) is built (the `history-hour.v1` API and the timeline, playback and trails on screen); its on-screen checks (T6, T8–T11) are still to run. Of the four questions the inventory raised
 (`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
 the identity; ITS API only). #11 and #12 are still open. Read in this order:
 
@@ -111,7 +111,7 @@ upgrading (§2.0).
 | Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0; schema migrations with goose v3.29.0 (embedded SQL in `packages/store/migrations`, Postgres session lock) | **built**: `positions` (hypertable, 1-day chunks, 3-day retention, no compression) and `feed_status` |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
 | API | Serves precomputed views and live positions. `apps/api` (**Go**): `GET /v1/vehicles/latest` and `/healthz` from an in-memory, pre-gzipped snapshot; pgx v5, read-only | **built** (`GET /v1/vehicles/latest`); other views planned |
-| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL 6.14.0 (ESM-only, worker URL set under Turbopack) + react-map-gl 8.1.3 + deck.gl 9.4.0 (`@deck.gl/maplibre`, overlaid mode); pmtiles 4.5.0 + `@protomaps/basemaps` 5.7.2 on a Protomaps Rio `.pmtiles` extract (`make tiles`, local; S3 + CloudFront with the AWS task); TanStack Table **v9** (`@tanstack/react-table` 9.2.8); **shadcn/ui** (CLI 4.21, Radix base, `button`, `tabs`, `toggle`, `toggle-group`, themed onto the CSS tokens in `app/globals.css`) + Tailwind v4 + `lucide-react`; **Archivo** (variable, `wdth` axis) for the UI and **Doto** (letreiro text only, ≥ 20 px) through `next/font/google`; Vitest 5.0 for the pure rules (node environment) | **built** (`apps/web/`): dashboard (map, letreiro, panel), `/tabela`, status strip |
+| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL 6.14.0 (ESM-only, worker URL set under Turbopack) + react-map-gl 8.1.3 + deck.gl 9.4.0 (`@deck.gl/maplibre`, overlaid mode); pmtiles 4.5.0 + `@protomaps/basemaps` 5.7.2 on a Protomaps Rio `.pmtiles` extract (`make tiles`, local; S3 + CloudFront with the AWS task); TanStack Table **v9** (`@tanstack/react-table` 9.2.8); **shadcn/ui** (CLI 4.21, Radix base, `button`, `tabs`, `toggle`, `toggle-group`, themed onto the CSS tokens in `app/globals.css`) + Tailwind v4 + `lucide-react`; **Archivo** (variable, `wdth` axis) for the UI and **Doto** (letreiro text only, ≥ 20 px) through `next/font/google`; **Zustand** 5 (`zustand/vanilla`, one store per mount) for the time machine's playhead only, `@deck.gl/geo-layers` (`TripsLayer`) for the replay trails; Vitest 5.0 for the pure rules (node environment) | **built** (`apps/web/`): dashboard (map, letreiro, panel), `/tabela`, status strip |
 | Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`packages/testharness`); real captures load through `packages/samples` | **scaffolded** |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
 | Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
@@ -252,6 +252,7 @@ transit-pulse/
 │   └── web/                     # Next.js app: the dashboard at /, the table at /tabela
 │       ├── app/                 # layout.tsx (fonts), page.tsx + tabela/page.tsx (Suspense around the client views), globals.css (the tokens), providers.tsx, get-query-client.ts
 │       ├── components/          # dashboard (state + layout), letreiro, live-map (+ canvas, basemap, vehicle-style), panel-agora/linhas/onibus, color-legend, status-strip, tabela-view, vehicle-table; ui/ = shadcn output
+│       ├── store/               # playback.ts: the time machine's Zustand store (per mount) and its pure transitions
 │       ├── hooks/               # every custom hook lives here, with the pure rules and their Vitest tests (testdata/ = a real, trimmed snapshot)
 │       ├── lib/                 # shadcn's utils.ts
 │       └── public/tiles/        # git-ignored: rio.pmtiles from `make tiles`
@@ -274,7 +275,7 @@ transit-pulse/
 Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
 `apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
 added only when a second JS package exists. Make targets: `up`, `down`, `test`
-(Go, then the web's Vitest), `lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`, `api`, `tiles`. No target runs `down -v`: deleting volumes is the
+(Go, then the web's Vitest), `lint`, `fmt`, `dev`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`, `api`, `tiles`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed

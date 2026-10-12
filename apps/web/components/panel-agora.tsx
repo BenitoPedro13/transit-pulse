@@ -1,8 +1,7 @@
 "use client";
 
-import { useFleetStats, formatKmh, formatPercent } from "@/hooks/use-fleet-stats";
-import { formatCoverage, formatCount } from "@/hooks/use-latest-vehicles";
-import { useVehicleStatus } from "@/hooks/use-vehicle-status";
+import { formatKmh, formatPercent, type FleetStats } from "@/hooks/use-fleet-stats";
+import { formatCoverage, formatCount, type Snapshot } from "@/hooks/use-latest-vehicles";
 
 // Each figure is a <dl> pair, so a screen reader hears the label and its value together.
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -15,12 +14,17 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-// Counts from the newest minute's snapshot. Missing is not zero: a vehicle with no speed is counted
+// Counts from the newest minute's snapshot, or in replay from the vehicles at the playhead (the
+// coverage list is the live snapshot's, so it is left out there). Missing is not zero: a vehicle with no speed is counted
 // apart ("sem velocidade") and is neither stopped nor moving.
-export default function PanelAgora({ onSelectLine }: { onSelectLine: (line: string) => void }) {
-  const stats = useFleetStats();
-  const { snapshot } = useVehicleStatus();
+type Props = {
+  stats: FleetStats | undefined;
+  snapshot: Snapshot | null;
+  replay: boolean;
+  onSelectLine: (line: string) => void;
+};
 
+export default function PanelAgora({ stats, snapshot, replay, onSelectLine }: Props) {
   if (!stats) return <p className="text-sm text-neblina">Carregando os números…</p>;
 
   return (
@@ -43,7 +47,7 @@ export default function PanelAgora({ onSelectLine }: { onSelectLine: (line: stri
 
       <section aria-labelledby="mais-onibus">
         <h2 id="mais-onibus" className="mb-1.5 text-sm font-semibold">
-          Mais ônibus agora
+          {replay ? "Mais ônibus neste momento" : "Mais ônibus agora"}
         </h2>
         <ul className="flex flex-wrap gap-1.5">
           {stats.topLines.map((l) => (
@@ -60,7 +64,13 @@ export default function PanelAgora({ onSelectLine }: { onSelectLine: (line: stri
         </ul>
       </section>
 
-      {snapshot && (
+      {replay && (
+        <p className="text-xs text-neblina">
+          Números do momento da reprodução: as posições mais recentes de cada ônibus, de até 5 minutos antes. A cobertura por operador é só do ao vivo.
+        </p>
+      )}
+
+      {snapshot && !replay && (
         <section aria-labelledby="cobertura">
           <h2 id="cobertura" className="mb-1.5 text-sm font-semibold">
             Cobertura

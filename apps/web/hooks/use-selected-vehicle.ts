@@ -13,6 +13,13 @@ export function findVehicle(rows: VehicleRow[], vehicle: string): VehicleRow | u
   return rows.find((r) => r.vehicle === vehicle);
 }
 
+// The same answer from any list of rows (the replay's vehicles at a minute).
+export function selectFromRows(rows: VehicleRow[], vehicle: string | null, asOfMinute: string): SelectedVehicle {
+  if (vehicle === null) return { kind: "none" };
+  const row = findVehicle(rows, vehicle);
+  return row ? { kind: "found", row } : { kind: "missing", asOfMinute };
+}
+
 export function useSelectedVehicle(vehicle: string | null): SelectedVehicle {
   const { data, isError } = useLatestVehicles();
   if (vehicle === null) return { kind: "none" };

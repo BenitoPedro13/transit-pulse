@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import snapshotJson from "./testdata/snapshot-20261012.json";
-import { parseParams, withParams } from "./dashboard-url";
+import { formatT, parseParams, parseT, withParams } from "./dashboard-url";
 import { fleetStats, formatKmh, formatPercent, median } from "./use-fleet-stats";
 import { toRows, type Snapshot, type Vehicle, type VehicleRow } from "./use-latest-vehicles";
 import { compareLines, matchLines, toLineIndex } from "./use-lines";
@@ -167,12 +167,13 @@ describe("dashboard URL", () => {
       linha: "474",
       onibus: "A29001",
       cor: "velocidade",
+      t: null,
     });
   });
 
   it("falls back to the default view for missing, empty or unknown values", () => {
-    expect(parseParams(new URLSearchParams(""))).toEqual({ linha: null, onibus: null, cor: "modo" });
-    expect(parseParams(new URLSearchParams("linha=&onibus=%20&cor=rosa"))).toEqual({ linha: null, onibus: null, cor: "modo" });
+    expect(parseParams(new URLSearchParams(""))).toEqual({ linha: null, onibus: null, cor: "modo", t: null });
+    expect(parseParams(new URLSearchParams("linha=&onibus=%20&cor=rosa"))).toEqual({ linha: null, onibus: null, cor: "modo", t: null });
   });
 
   it("writes a patch and leaves out defaults and other keys' order", () => {
@@ -181,6 +182,23 @@ describe("dashboard URL", () => {
     expect(withParams("linha=474&onibus=A1", { linha: null, onibus: null })).toBe("");
     expect(withParams("cor=velocidade", { cor: "modo" })).toBe("");
     expect(withParams("", { cor: "velocidade" })).toBe("cor=velocidade");
+  });
+
+  it("reads a replay minute only when it is a whole minute in UTC", () => {
+    expect(parseParams(new URLSearchParams("t=2026-10-12T12:47Z")).t).toBe("2026-10-12T12:47Z");
+    expect(parseT("2026-10-12T12:47Z")).toBe(Date.parse("2026-10-12T12:47:00Z"));
+    for (const bad of ["", "2026-10-12", "2026-10-12T12:47", "2026-10-12T12:47:30Z", "2026-10-12T12:47+03:00", "2026-13-40T99:99Z", "agora"]) {
+      expect(parseT(bad), bad).toBeNull();
+      expect(parseParams(new URLSearchParams({ t: bad })).t, bad).toBeNull();
+    }
+    expect(parseT(null)).toBeNull();
+  });
+
+  it("writes the minute back to the same text, and drops it to go live", () => {
+    expect(formatT(Date.parse("2026-10-12T12:47:00Z"))).toBe("2026-10-12T12:47Z");
+    expect(formatT(parseT("2026-10-12T00:00Z") ?? 0)).toBe("2026-10-12T00:00Z");
+    expect(withParams("linha=474", { t: "2026-10-12T12:47Z" })).toBe("linha=474&t=2026-10-12T12%3A47Z");
+    expect(withParams("linha=474&t=2026-10-12T12%3A47Z", { t: null })).toBe("linha=474");
   });
 
   it("encodes a line with a space", () => {

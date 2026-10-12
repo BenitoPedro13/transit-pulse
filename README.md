@@ -28,7 +28,9 @@ bus) that says plainly whether the data is live, stale or failed, a panel to exp
 buses (pick a line, click a bus, follow it, colour by speed; the view lives in the URL), and a
 table at `/tabela` as the non-map alternative (plans and measurements in
 [`docs/tasks/TASK-live-map.md`](docs/tasks/TASK-live-map.md) and
-[`docs/tasks/TASK-dashboard.md`](docs/tasks/TASK-dashboard.md)). The raw log isn't uploaded to S3 yet.
+[`docs/tasks/TASK-dashboard.md`](docs/tasks/TASK-dashboard.md)). A time machine (a timeline along the bottom: scrub the last hours, play at
+1×/10×/60× with fading trails, and a way back to live) is built too; its on-screen checks are still to run
+([`docs/tasks/TASK-time-machine.md`](docs/tasks/TASK-time-machine.md)). The raw log isn't uploaded to S3 yet.
 
 ## Setup
 
@@ -78,6 +80,7 @@ pnpm --dir apps/web install   # first time only, if apps/web/node_modules is mis
 | `make test` | `go test -count=1 ./...` (real Redpanda and TimescaleDB via testcontainers), then `pnpm --dir apps/web test` (Vitest, pure functions) |
 | `make lint` | gofmt check, `go vet`, `golangci-lint run`, `pnpm --dir apps/web lint` |
 | `make fmt` | `gofmt -w` on the Go packages |
+| `make dev` | local infra, the API and the Next.js dev server in one terminal (Ctrl-C stops both) |
 | `make web-dev` / `make web-build` | the Next.js dev server / production build |
 | `make adapter-its` | runs `apps/adapter-its` with `.env` loaded. Writes the raw log under `RAW_DIR` (`./var/raw`, git-ignored: **never delete it**, it's the source of truth), publishes to Redpanda, and logs one JSON line per published minute. Set `ITS_CONTACT` in your own `.env` |
 | `make consumer` | runs `apps/consumer` with `.env` loaded: consumer group `transit-pulse-consumer` on `positions.v1` and `feed-status.v1`, one transaction per batch, offsets committed after it. Needs `DATABASE_URL`. Logs one JSON line per batch |

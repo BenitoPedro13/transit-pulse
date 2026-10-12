@@ -13,6 +13,8 @@ type Props = {
   follow: boolean;
   onFollowChange: (follow: boolean) => void;
   onClear: () => void;
+  // In replay the card reads the fix at the playhead and says whether the position is real.
+  replay: boolean;
 };
 
 // An arrow pointing where the bus heads (0° is north, clockwise). Decoration: the text beside it says
@@ -25,7 +27,7 @@ function HeadingArrow({ deg }: { deg: number }) {
   );
 }
 
-function Card({ row, follow, onFollowChange }: { row: VehicleRow; follow: boolean; onFollowChange: (f: boolean) => void }) {
+function Card({ row, follow, onFollowChange, replay }: { row: VehicleRow & { interpolated?: boolean }; follow: boolean; onFollowChange: (f: boolean) => void; replay: boolean }) {
   return (
     <div className="flex flex-col gap-3">
       <LineSign>{row.line ?? "Sem linha"}</LineSign>
@@ -42,7 +44,15 @@ function Card({ row, follow, onFollowChange }: { row: VehicleRow; follow: boolea
           {formatHeading(row.heading_deg)}
         </dd>
         <dt className="text-neblina">Posição</dt>
-        <dd>{row.ageSeconds === null ? "idade desconhecida" : `visto há ${formatAgeSeconds(row.ageSeconds)}`}</dd>
+        <dd>
+          {replay
+            ? row.interpolated
+              ? `≈ posição suavizada (última posição real às ${formatClock(row.event_time, undefined, true)})`
+              : `posição real de ${formatClock(row.event_time, undefined, true)}`
+            : row.ageSeconds === null
+              ? "idade desconhecida"
+              : `visto há ${formatAgeSeconds(row.ageSeconds)}`}
+        </dd>
       </dl>
       <Toggle pressed={follow} onPressedChange={onFollowChange} className="self-start">
         Seguir
@@ -51,14 +61,14 @@ function Card({ row, follow, onFollowChange }: { row: VehicleRow; follow: boolea
   );
 }
 
-export default function PanelOnibus({ vehicle, selected, follow, onFollowChange, onClear }: Props) {
+export default function PanelOnibus({ vehicle, selected, follow, onFollowChange, onClear, replay }: Props) {
   return (
     <div className="flex flex-col gap-3">
-      {selected.kind === "found" && <Card row={selected.row} follow={follow} onFollowChange={onFollowChange} />}
+      {selected.kind === "found" && <Card row={selected.row} follow={follow} onFollowChange={onFollowChange} replay={replay} />}
       {selected.kind === "missing" && (
         <>
           <p className="text-sm font-semibold">Ônibus {vehicle}</p>
-          <p className="text-sm">Não aparece no último minuto gravado ({formatClock(selected.asOfMinute)}).</p>
+          <p className="text-sm">{replay ? `Não aparece neste momento da reprodução (${formatClock(selected.asOfMinute)}).` : `Não aparece no último minuto gravado (${formatClock(selected.asOfMinute)}).`}</p>
           <Toggle pressed={false} disabled className="self-start">
             Seguir
           </Toggle>

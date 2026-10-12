@@ -3,10 +3,13 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { addProtocol, LngLatBounds, setWorkerUrl } from "maplibre-gl";
 import { Protocol } from "pmtiles";
+import { TripsLayer } from "@deck.gl/geo-layers";
 import { IconLayer } from "@deck.gl/layers";
 import { useEffect, useRef } from "react";
 import { Map, NavigationControl, useMap } from "react-map-gl/maplibre";
+import { GAP_SECONDS, tripsData, type HistoryWindow } from "@/hooks/history-window";
 import { mapPadding } from "@/hooks/map-padding";
+import { useReplayFrame } from "@/hooks/use-playback";
 import { formatAgeSeconds, type VehicleRow } from "@/hooks/use-latest-vehicles";
 import { useDeckOverlay } from "@/hooks/use-deck-overlay";
 import type { ColorBy } from "@/hooks/dashboard-url";
@@ -90,28 +93,60 @@ const GLOW_ALPHA = 190;
 // With a line selected, every other vehicle drops to 15% of that.
 const DIMMED_FACTOR = 0.15;
 
-function tooltip({ object }: { object?: VehicleRow | null }) {
+type DrawnRow = VehicleRow & { interpolated?: boolean };
+
+function tooltip({ object }: { object?: DrawnRow | null }) {
   if (!object) return null;
   return {
     text: [
       `Linha ${object.line ?? "—"}`,
       `Veículo ${object.vehicle}`,
       object.operatorLabel,
-      `Última posição há ${formatAgeSeconds(object.ageSeconds)}`,
+      `Última posição real há ${formatAgeSeconds(object.ageSeconds)}`,
+      ...(object.interpolated ? ["≈ posição suavizada"] : []),
     ].join("\n"),
   };
 }
 
+// The fading trails of the replay: each vehicle's real fixes joined by straight lines, never across a gap
+// (history-window.ts splits the paths). Drawn under the vehicles, and only while smoothing is on.
+type Trails = { window: HistoryWindow; currentTime: number };
+
+// Same colour as the vehicle's mark in "modo" (a trail has no single speed), and the same dimming.
+function trailsLayer(trails: Trails, linha: string | null, selectedId: string | null, scheme: ColorScheme) {
+  const w = trails.window;
+  const rgb = { bus: hexToRgb(PALETTE[scheme].bus), brt: hexToRgb(PALETTE[scheme].brt) };
+  return new TripsLayer({
+    id: "trails",
+    data: tripsData(w),
+    positionFormat: "XY",
+    getColor: (_: unknown, { index }: { index: number }) => {
+      const series = w.series[w.pathSeries[index]];
+      const dim = linha !== null && w.lines[w.pathLine[index]] !== linha && series.vehicle !== selectedId;
+      return [...(series.mode === "brt" ? rgb.brt : rgb.bus), Math.round(255 * (dim ? DIMMED_FACTOR : 1))] as [number, number, number, number];
+    },
+    getWidth: 3,
+    widthUnits: "pixels",
+    capRounded: true,
+    jointRounded: true,
+    currentTime: trails.currentTime,
+    trailLength: GAP_SECONDS,
+    fadeTrail: true,
+    updateTriggers: { getColor: [w, linha, selectedId, scheme] },
+  });
+}
+
 type VehicleLayerProps = {
-  vehicles: VehicleRow[];
+  vehicles: DrawnRow[];
   linha: string | null;
-  selected: VehicleRow | null;
+  selected: DrawnRow | null;
+  trails: Trails | null;
   colorBy: ColorBy;
   scheme: ColorScheme;
   onSelectBus: (vehicle: string) => void;
 };
 
-function VehicleLayer({ vehicles, linha, selected, colorBy, scheme, onSelectBus }: VehicleLayerProps) {
+function VehicleLayer({ vehicles, linha, selected, trails, colorBy, scheme, onSelectBus }: VehicleLayerProps) {
   const selectedId = selected?.vehicle ?? null;
   useDeckOverlay({
     // Overlaid: deck.gl gets its own canvas above the map. Interleaved mode shares MapLibre's WebGL
@@ -120,11 +155,12 @@ function VehicleLayer({ vehicles, linha, selected, colorBy, scheme, onSelectBus 
     interleaved: false,
     getTooltip: tooltip,
     onClick: (info) => {
-      const row = info.object as VehicleRow | undefined;
+      const row = info.object as DrawnRow | undefined;
       if (row) onSelectBus(row.vehicle);
     },
     layers: [
-      new IconLayer<VehicleRow>({
+      ...(trails ? [trailsLayer(trails, linha, selectedId, scheme)] : []),
+      new IconLayer<DrawnRow>({
         id: "vehicles",
         data: vehicles,
         pickable: true,
@@ -141,7 +177,7 @@ function VehicleLayer({ vehicles, linha, selected, colorBy, scheme, onSelectBus 
         updateTriggers: { getIcon: [colorBy], getColor: [colorBy, linha, scheme, selectedId] },
         parameters: glows(colorBy, scheme) ? ADDITIVE : { blend: true },
       }),
-      new IconLayer<VehicleRow>({
+      new IconLayer<DrawnRow>({
         id: "selected-bus",
         data: selected ? [selected] : [],
         iconAtlas: ICON_ATLAS,
@@ -159,9 +195,11 @@ function VehicleLayer({ vehicles, linha, selected, colorBy, scheme, onSelectBus 
 }
 
 type CameraProps = {
-  vehicles: VehicleRow[];
+  vehicles: DrawnRow[];
   linha: string | null;
-  selected: VehicleRow | null;
+  selected: DrawnRow | null;
+  // Seguir moves with the bus every frame (replay) instead of easing to each new snapshot (live).
+  snap: boolean;
   follow: boolean;
   isDesktop: boolean;
   panelExpanded: boolean;
@@ -169,7 +207,7 @@ type CameraProps = {
 
 // Moves the camera. It's a separate component because it needs the map from react-map-gl's context.
 // Each move below is an Effect because the map is an external system.
-function Camera({ vehicles, linha, selected, follow, isDesktop, panelExpanded }: CameraProps) {
+function Camera({ vehicles, linha, selected, snap, follow, isDesktop, panelExpanded }: CameraProps) {
   const { current: map } = useMap();
   const reduced = useReducedMotion();
   const fittedLine = useRef<string | null>(null);
@@ -226,14 +264,36 @@ function Camera({ vehicles, linha, selected, follow, isDesktop, panelExpanded }:
       center: [selected.lon, selected.lat] as [number, number],
       padding: mapPadding(isDesktop, panelExpanded, window.innerHeight),
     };
-    if (reduced) map.jumpTo(target);
+    if (reduced || snap) map.jumpTo(target);
     else map.easeTo({ ...target, duration: 500 });
-  }, [map, follow, selected, isDesktop, panelExpanded, reduced]);
+  }, [map, follow, selected, snap, isDesktop, panelExpanded, reduced]);
 
   return null;
 }
 
-type Props = VehicleLayerProps & CameraProps & { onUserPan: () => void };
+type SceneProps = Omit<VehicleLayerProps & CameraProps, "trails" | "snap" | "vehicles" | "selected"> & {
+  // The live snapshot, and the live row of the selected bus.
+  vehicles: VehicleRow[];
+  selected: VehicleRow | null;
+  selectedId: string | null;
+};
+
+// What is drawn: the live snapshot, or in replay the vehicles at the playhead. It re-renders every frame
+// while playing (usePlayhead), which is why it is a leaf: the dashboard around it does not.
+function Scene({ vehicles, selected, selectedId, ...props }: SceneProps) {
+  const frame = useReplayFrame();
+  const drawn: DrawnRow[] = frame ? frame.rows : vehicles;
+  const chosen = frame ? (selectedId === null ? null : (frame.rows.find((r) => r.vehicle === selectedId) ?? null)) : selected;
+  const trails = frame?.trails && frame.window ? { window: frame.window, currentTime: frame.currentTime } : null;
+  return (
+    <>
+      <VehicleLayer {...props} vehicles={drawn} selected={chosen} trails={trails} />
+      <Camera {...props} vehicles={drawn} selected={chosen} snap={frame !== null} />
+    </>
+  );
+}
+
+type Props = SceneProps & { onUserPan: () => void };
 
 export default function LiveMapCanvas({ onUserPan, ...props }: Props) {
   return (
@@ -245,8 +305,7 @@ export default function LiveMapCanvas({ onUserPan, ...props }: Props) {
       onDragStart={onUserPan}
     >
       <NavigationControl showCompass={false} />
-      <VehicleLayer {...props} />
-      <Camera {...props} />
+      <Scene {...props} />
     </Map>
   );
 }

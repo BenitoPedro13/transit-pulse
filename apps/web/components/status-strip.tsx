@@ -11,6 +11,7 @@ const ANNOUNCEMENT: Record<ScreenStatus["kind"], string> = {
   stale: "Não está ao vivo.",
   failed: "Atenção: falha na coleta de dados de um ou mais operadores.",
   unavailable: "Não foi possível carregar os veículos.",
+  replay: "Reprodução do histórico, não é ao vivo.",
 };
 
 // The label carries the state in words; the marker's shape and colour only add to it.
@@ -20,6 +21,7 @@ const MARKER: Record<ScreenStatus["kind"], { symbol: string; className: string }
   stale: { symbol: "◐", className: "text-status-stale" },
   failed: { symbol: "▲", className: "text-status-failed" },
   unavailable: { symbol: "▲", className: "text-status-failed" },
+  replay: { symbol: "↺", className: "text-status-stale" },
 };
 
 export default function StatusStrip() {

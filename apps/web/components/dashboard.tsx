@@ -8,19 +8,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { letreiroText } from "@/hooks/letreiro-text";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useDashboardParams } from "@/hooks/use-dashboard-params";
-import { formatKmh, formatPercent, useFleetStats } from "@/hooks/use-fleet-stats";
+import { fleetStats, formatKmh, formatPercent, useFleetStats } from "@/hooks/use-fleet-stats";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { formatCount, useLatestVehicles, type VehicleRow } from "@/hooks/use-latest-vehicles";
-import { useSelectedVehicle } from "@/hooks/use-selected-vehicle";
+import { selectFromRows, useSelectedVehicle, type SelectedVehicle } from "@/hooks/use-selected-vehicle";
 import { useVehicleStatus } from "@/hooks/use-vehicle-status";
-import { useVehiclesOfLine } from "@/hooks/use-lines";
+import { toLineIndex, useLineIndex, useVehiclesOfLine, vehiclesOfLine } from "@/hooks/use-lines";
+import { useReplayRows, useReplayView } from "@/hooks/use-playback";
 import ColorLegend from "./color-legend";
 import Letreiro from "./letreiro";
 import LiveMap from "./live-map";
 import PanelAgora from "./panel-agora";
 import PanelLinhas from "./panel-linhas";
 import PanelOnibus from "./panel-onibus";
+import PlaybackClock from "./playback-clock";
+import PlaybackUrlSync from "./playback-url-sync";
 import StatusStrip from "./status-strip";
+import Timeline from "./timeline";
 
 type Tab = "agora" | "linhas" | "onibus";
 
@@ -33,9 +37,25 @@ export default function Dashboard() {
   const params = useDashboardParams();
   const { data } = useLatestVehicles();
   const status = useVehicleStatus();
-  const stats = useFleetStats();
-  const selected = useSelectedVehicle(params.onibus);
-  const lineVehicles = useVehiclesOfLine(params.linha);
+  const view = useReplayView();
+  const replayRows = useReplayRows(view);
+  const replay = view.kind !== "live";
+
+  // Live, the panels read the newest snapshot; in replay, the vehicles at the playhead's minute.
+  const liveStats = useFleetStats();
+  const liveIndex = useLineIndex();
+  const liveSelected = useSelectedVehicle(params.onibus);
+  const liveLineVehicles = useVehiclesOfLine(params.linha);
+  const stats = replayRows ? fleetStats(replayRows) : liveStats;
+  const lineIndex = replayRows ? toLineIndex(replayRows) : liveIndex;
+  const lineVehicles = replayRows ? (params.linha ? vehiclesOfLine(replayRows, params.linha) : NO_ROWS) : liveLineVehicles;
+  const selected: SelectedVehicle = replayRows
+    ? view.kind === "ready"
+      ? selectFromRows(replayRows, params.onibus, new Date(view.minute.startMs).toISOString())
+      : params.onibus === null
+        ? { kind: "none" }
+        : { kind: view.kind === "loading" ? "loading" : "unavailable" }
+    : liveSelected;
   const scheme = useColorScheme();
   const isDesktop = useIsDesktop();
 
@@ -77,6 +97,12 @@ export default function Dashboard() {
 
   const text = letreiroText({
     status: status.kind,
+    replay:
+      view.kind === "live"
+        ? null
+        : view.kind === "ready"
+          ? { state: "ready", minuteStart: view.minute.startMs, vehicles: view.minute.vehicles, gap: view.minute.gap }
+          : { state: view.kind, minuteStart: 0, vehicles: 0, gap: false },
     asOfMinute: data?.snapshot.as_of_minute ?? null,
     total: data?.rows.length ?? 0,
     linha: params.linha,
@@ -87,7 +113,9 @@ export default function Dashboard() {
 
   // The one line the collapsed phone panel shows.
   let summary = "Carregando…";
-  if (selectedRow) {
+  if (replay && view.kind !== "ready") {
+    summary = "Reprodução — carregando o histórico";
+  } else if (selectedRow) {
     summary = `${selectedRow.line ?? "Sem linha"} · ${selectedRow.vehicle} · ${selectedRow.speed_kmh === null ? "sem velocidade" : formatKmh(selectedRow.speed_kmh)}`;
   } else if (params.onibus) {
     summary = `Ônibus ${params.onibus}`;
@@ -97,6 +125,7 @@ export default function Dashboard() {
     summary = `${stats.movingShare === null ? "—" : formatPercent(stats.movingShare)} em movimento · mediana ${stats.medianMovingKmh === null ? "—" : formatKmh(stats.medianMovingKmh)}`;
   }
 
+  const when = replay ? "neste momento da reprodução" : "no último minuto gravado";
   const tableHref = params.linha ? `/tabela?linha=${encodeURIComponent(params.linha)}` : "/tabela";
 
   return (
@@ -106,13 +135,16 @@ export default function Dashboard() {
       style={{ "--panel-h": expanded ? "70svh" : "33svh" } as React.CSSProperties}
     >
       {/* pointer-events-none: the empty space between the floating pieces still drags the map. */}
+      <PlaybackClock />
+      <PlaybackUrlSync />
+
       <div className="pointer-events-none absolute top-3 right-3 left-3 z-10 flex flex-col items-start gap-2 lg:top-4 lg:right-auto lg:left-4 lg:max-w-[46rem]">
         <Letreiro text={text} />
         <div className="flex w-full items-start justify-between gap-2">
           <StatusStrip />
           <Link
             href={tableHref}
-            className="pointer-events-auto shrink-0 rounded-md border border-borda bg-morro px-3 py-1.5 text-sm font-medium text-calcadao hover:bg-morro-alto lg:fixed lg:right-4 lg:bottom-10"
+            className="pointer-events-auto shrink-0 rounded-md border border-borda bg-morro px-3 py-1.5 text-sm font-medium text-calcadao hover:bg-morro-alto lg:fixed lg:right-4 lg:bottom-[11rem]"
           >
             Ver como tabela ▸
           </Link>
@@ -122,8 +154,11 @@ export default function Dashboard() {
       <section
         aria-label="Painel"
         data-expanded={expanded}
-        className="absolute z-20 flex flex-col gap-2 rounded-t-xl border border-borda bg-morro p-3 text-calcadao shadow-lg max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[33svh] max-lg:data-[expanded=true]:h-[70svh] max-lg:data-[expanded=true]:max-h-none lg:top-4 lg:right-4 lg:max-h-[calc(100svh-8.5rem)] lg:w-[22rem] lg:rounded-xl"
+        className="absolute z-20 flex flex-col gap-2 rounded-t-xl border border-borda bg-morro p-3 text-calcadao shadow-lg max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[33svh] max-lg:data-[expanded=true]:h-[70svh] max-lg:data-[expanded=true]:max-h-none lg:top-4 lg:right-4 lg:max-h-[calc(100svh-16rem)] lg:w-[22rem] lg:rounded-xl"
       >
+        {/* On a phone the timeline is the panel's top row; on a desktop it spans the bottom of the screen. */}
+        <Timeline expanded={expanded} className="lg:fixed lg:inset-x-4 lg:bottom-9" />
+
         <Tabs value={activeTab} onValueChange={changeTab} className={expanded ? "min-h-0 flex-1" : "lg:min-h-0 lg:flex-1"}>
           <TabsList aria-label="Painel">
             <TabsTrigger value="agora">Agora</TabsTrigger>
@@ -147,10 +182,13 @@ export default function Dashboard() {
 
           <div id="painel-conteudo" className={`min-h-0 flex-1 overflow-y-auto pr-1 ${expanded ? "" : "max-lg:hidden"}`}>
             <TabsContent value="agora">
-              <PanelAgora onSelectLine={selectLine} />
+              <PanelAgora stats={stats} snapshot={status.snapshot} replay={replay} onSelectLine={selectLine} />
             </TabsContent>
             <TabsContent value="linhas">
               <PanelLinhas
+                index={lineIndex}
+                buses={lineVehicles}
+                when={when}
                 linha={params.linha}
                 onibus={params.onibus}
                 onSelectLine={selectLine}
@@ -166,6 +204,7 @@ export default function Dashboard() {
                   follow={follow}
                   onFollowChange={setFollow}
                   onClear={clearBus}
+                  replay={replay}
                 />
               </TabsContent>
             )}
@@ -174,7 +213,7 @@ export default function Dashboard() {
 
         {/* On a phone this is the panel's footer, so it stays visible when the panel is collapsed; on
             a desktop it floats at the bottom left of the map (fixed to the viewport). */}
-        <ColorLegend cor={params.cor} onChange={params.setCor} className="lg:fixed lg:bottom-4 lg:left-4" />
+        <ColorLegend cor={params.cor} onChange={params.setCor} className="lg:fixed lg:bottom-[11rem] lg:left-4" />
       </section>
 
       {/* Last in the source, so the keyboard reaches the heading, the panel and the legend before the
@@ -183,6 +222,7 @@ export default function Dashboard() {
         vehicles={data?.rows ?? NO_ROWS}
         linha={params.linha}
         selected={selectedRow}
+        selectedId={params.onibus}
         colorBy={params.cor}
         scheme={scheme}
         follow={follow}

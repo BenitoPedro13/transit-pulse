@@ -1,4 +1,4 @@
-.PHONY: up down test lint fmt web-dev web-build adapter-its consumer rebuild api tiles
+.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -28,6 +28,16 @@ fmt:
 	gofmt -w $(GO_DIRS)
 
 web-dev:
+	pnpm --dir apps/web dev
+
+# The whole screen in one terminal: local infra, the read-only API (in the background, built to
+# var/api so Ctrl-C stops the real process) and the Next dev server (in the foreground). Stop with
+# Ctrl-C. The database must already be filled (`make consumer` or `make rebuild`). To look at another
+# database, such as the recorded run: make dev DB=postgres://.../transit_pulse_run?sslmode=disable
+dev: up
+	go build -o var/api ./apps/api
+	( set -a; . ./.env; set +a; DATABASE_URL="$(if $(DB),$(DB),$$DATABASE_URL)" exec var/api ) & api=$$!; \
+	trap 'kill $$api 2>/dev/null' EXIT INT TERM; \
 	pnpm --dir apps/web dev
 
 web-build:
