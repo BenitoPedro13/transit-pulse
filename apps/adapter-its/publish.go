@@ -26,6 +26,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/BenitoPedro13/transit-pulse/packages/event"
+	"github.com/BenitoPedro13/transit-pulse/packages/its"
 	"github.com/BenitoPedro13/transit-pulse/packages/raw"
 )
 
@@ -286,30 +287,6 @@ func statusRecords(sts []event.FeedStatus) ([]*kgo.Record, error) {
 	return out, nil
 }
 
-// minuteStatuses builds the feed-status message of every mapped feed for a completed minute.
-func minuteStatuses(minute string, st *Stats, rawKeys []string) []event.FeedStatus {
-	var out []event.FeedStatus
-	for _, f := range mappedFeeds() {
-		fs := st.Feeds[f]
-		if fs == nil {
-			fs = &FeedStats{}
-		}
-		s := event.FeedStatus{
-			Feed: f, Operator: feedOperators[f], MinuteUTC: minute, Status: event.StatusOK,
-			Records: fs.Records, Events: fs.Events, Invalid: fs.Invalid, Unmapped: fs.Unmapped,
-			ConflictingDuplicates: fs.ConflictingDuplicates, RawKeys: rawKeys,
-		}
-		if ps, ok := st.ProviderStatus[f]; ok {
-			s.ProviderStatus = &ps
-		}
-		if s.ProviderStatus == nil || *s.ProviderStatus != "ok" {
-			s.Status = event.StatusProviderNotOK
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 // publishMinute reads a complete minute back from the raw log, maps it with the same function a
 // replay uses, and produces its events and then its feed-status messages. Only when every message
 // is acked is the minute marked published.
@@ -336,7 +313,7 @@ func (p *publisher) publishMinute(ctx context.Context, minute string) error {
 			rawKeys = append(rawKeys, e.Loc.Key)
 		}
 	}
-	evs, st, err := MinuteEvents(envs)
+	evs, st, err := its.MinuteEvents(envs)
 	if err != nil {
 		return err
 	}
@@ -349,7 +326,7 @@ func (p *publisher) publishMinute(ctx context.Context, minute string) error {
 		}
 		recs = append(recs, &kgo.Record{Topic: topicPositions, Key: []byte(e.Key()), Value: v})
 	}
-	srecs, err := statusRecords(minuteStatuses(minute, st, rawKeys))
+	srecs, err := statusRecords(its.MinuteStatuses(minute, st, rawKeys))
 	if err != nil {
 		return err
 	}

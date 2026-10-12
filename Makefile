@@ -1,4 +1,4 @@
-.PHONY: up down test lint fmt web-dev web-build adapter-its tiles
+.PHONY: up down test lint fmt web-dev web-build adapter-its consumer rebuild tiles
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -34,6 +34,18 @@ web-build:
 # Needs `make up` (Redpanda). Reads .env; stop it with Ctrl-C (it exits 0 within 10 s).
 adapter-its: .env
 	set -a && . ./.env && set +a && go run ./apps/adapter-its
+
+# Needs `make up`. Reads .env; stop it with Ctrl-C (it exits 0 within 10 s). Run it next to
+# `make adapter-its`, or after it: a new group starts at the oldest record the topics still hold.
+consumer: .env
+	set -a && . ./.env && set +a && go run ./apps/consumer
+
+# Rebuilds positions and feed_status from the raw log for FROM..TO (both minutes inclusive, RFC 3339
+# UTC). Writes DATABASE_URL from .env, or DB=postgres://... to rebuild into another database.
+#   make rebuild FROM=2026-10-12T14:27:00Z TO=2026-10-12T16:24:00Z
+rebuild: .env
+	test -n "$(FROM)" -a -n "$(TO)"
+	set -a && . ./.env && set +a && DATABASE_URL="$(if $(DB),$(DB),$$DATABASE_URL)" go run ./apps/rebuild -from $(FROM) -to $(TO)
 
 # Rio basemap extract (Protomaps daily build, ~45 MB) -> apps/web/public/tiles/rio.pmtiles.
 # Needs the pmtiles CLI (`brew install pmtiles`). Override the build: make tiles TILES_BUILD=20261012.pmtiles

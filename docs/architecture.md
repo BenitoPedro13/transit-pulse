@@ -89,8 +89,8 @@ test fails if the two disagree.
   re-publishes from its checkpoint, so the topic can hold the same event twice. Separately, the
   ITS API re-serves the same fix in later minutes: in a 118-minute run 4.6% of published
   records (52,854 of 1,152,042) were repeats of an identity already published, none of them
-  from a re-publish (research §1.1). The consumer is idempotent on `Identity()`
-  (`ON CONFLICT DO NOTHING`), and that is required, not a safety net.
+  from a re-publish (research §1.1). The consumer is idempotent on `Identity()`, keeping the
+  copy from the earliest raw minute (§10 #7), and that is required, not a safety net.
 - **Identity collides across suppliers (2026-10-12).** In the ITS API, two AVL suppliers
   (`conecta` and `zirix`) report the same SPPO `id_veiculo` from two different devices. 3,114
   `(vehicle, datetime)` pairs exist in both, with different positions. Resolved by §10 #9:
@@ -135,6 +135,13 @@ live sources on 2026-10-12.
   can't be rebuilt (invariant 2).
 - **Readers are isolated.** Viewers hit precomputed views and cached positions, never the
   adapters and never a provider (invariants 4 and 5).
+- **The consumer and the rebuild share one write path (built 2026-10-12).** `apps/consumer`
+  reads `positions.v1` and `feed-status.v1` in the group `transit-pulse-consumer`, writes a
+  batch to TimescaleDB in one transaction, and commits the offsets only after it. `apps/rebuild`
+  maps the raw log of a minute range with the same `packages/its` code and writes it through the
+  same `packages/store` functions. Both writes are idempotent and order-independent, so a table
+  rebuilt from the raw log equals the one the consumer built live (see §10 #7 and
+  `docs/tasks/TASK-positions-consumer.md`).
 
 ## 6. Hosting and cost sketch
 
@@ -238,7 +245,7 @@ Provisional numbers, to be re-checked once the source inventory measures the rea
 | Data | Where | Kept | Notes |
 |---|---|---|---|
 | Raw provider responses | S3, compressed; durable copy on the user's machine (§7.1) | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back. **Confirmed 2026-10-12** (AWS Price List, us-east-1): Standard $0.023/GB-mo, IA $0.0125/GB-mo plus $0.01/GB retrieval, a 30-day minimum and a **128 KB minimum object size**. So objects must be batched (one per source per hour) for IA to pay off. The total is ≈ 65–80 GB after 4 months |
-| Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table. With the ITS API that's ≈ 47 M rows (≈ 15.7 M/day before de-duplication) `[VERIFY in phase 1: bytes/row on disk, which decides whether 3 days fits the t4g.small's volume]` |
+| Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table. With the ITS API that's ≈ 47 M rows (≈ 15.7 M/day before de-duplication, **13.4 M/day after it**). **Measured 2026-10-12: 289 B/row** (table plus primary-key index, uncompressed, 1,099,188 rows from the 118-minute run). Retention drops whole chunks, so up to 4 days are on disk: 4 × 13.4 M rows ≈ **14.4 GiB**, above 70% of a 20 GiB volume. **Decided (user, 2026-10-12): keep the schema and size the data volume at 30 GiB** (the AWS infra task). A slimmer schema (smallint codes, no `raw_key`) measured 203 B/row ≈ 10.1 GiB, if it's ever needed. The index was bulk-loaded in key order, so live arrival order may add some `[VERIFY: re-measure on the box after a few live days]` |
 | Per line, 5-minute buckets | TimescaleDB continuous aggregate | **forever** | active vehicles, median and p90 delay, observed headway (the exact list is fixed in the phase 1 task) |
 | Per line, hourly and daily rollups | continuous aggregates | **forever** | |
 | Disk guard | CloudWatch | — | alarm at 70% of the data volume (renewable-pulse `abb09de`) |
@@ -266,7 +273,7 @@ verified.
 | 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **decided** (user, 2026-10-12) |
 | 5 | Retention windows | §8 | **decided** |
 | 6 | Replay days | §9 | **decided** |
-| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Vehicle IDs **are stable** across polls and across SMTR's paths, and a parked vehicle repeats its `event_time` in snapshot feeds (verified 2026-10-12). **But see #9:** two suppliers collide on the same key |
+| 7 | Event identity and schema format | identity = `(operator, feed, vehicle, event_time)` (§10 #9), enforced as the primary key. **A repeat keeps the copy from the earliest raw minute** (`ON CONFLICT … DO UPDATE … WHERE excluded.raw_minute < positions.raw_minute`), not `DO NOTHING`: the provider re-serves a fix in a later minute for 4.6% of records, and the adapter publishes the newest minute first after a restart, so `DO NOTHING` would keep whichever copy arrived first and a live table would differ from a rebuilt one (11 of the 52,854 repeats in the 118-minute run even differ in position). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Vehicle IDs **are stable** across polls and across SMTR's paths, and a parked vehicle repeats its `event_time` in snapshot feeds (verified 2026-10-12). **But see #9:** two suppliers collide on the same key |
 | 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
 | 9 | Identity across suppliers | `conecta` and `zirix` both report the same SPPO bus (2,072 vehicles) from two devices with different positions. **Answer: the supplier joins the identity** as an opaque `feed` tag (`its:conecta`, …): identity = `(operator, feed, vehicle, event_time)`. Both observations are kept; picking one fix per vehicle is a projection's job. Nothing downstream branches on `feed`'s value | **decided** (user, 2026-10-12); implemented by `docs/tasks/TASK-its-adapter.md` |
 | 10 | Which live path for phase 1 | (a) ITS API: every supplier and the whole fleet, per-minute immutable windows, 24 h backfill, ≈ 529 MB/day; (b) GTFS-RT: standard, ≈ 128 MB/day, but only trip-matched vehicles (≈ 46% of buses); (c) legacy JSON: undocumented, a false `Z` on SPPO times, conecta only. Recommendation: (a) as the source of truth, with (b) optionally recorded as a cross-check. All three are beta | **decided** (user, 2026-10-12): **(a) the ITS API only.** GTFS-RT isn't ingested in phase 1; it may be added later as a cross-check. Implemented by `docs/tasks/TASK-its-adapter.md` |

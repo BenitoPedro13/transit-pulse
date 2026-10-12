@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/BenitoPedro13/transit-pulse/packages/event"
+	"github.com/BenitoPedro13/transit-pulse/packages/its"
 )
 
 const minuteLayout = "2006-01-02T15:04:05Z"
@@ -144,13 +145,7 @@ func (a *adapter) statusesFor(minute, status string) []event.FeedStatus {
 			keys = append(keys, e.Loc.Key)
 		}
 	}
-	var out []event.FeedStatus
-	for _, f := range mappedFeeds() {
-		out = append(out, event.FeedStatus{
-			Feed: f, Operator: feedOperators[f], MinuteUTC: minute, Status: status, RawKeys: keys,
-		})
-	}
-	return out
+	return its.EmptyStatuses(minute, status, keys)
 }
 
 // fetchLoop runs step until ctx is cancelled. It returns nil on a clean stop.

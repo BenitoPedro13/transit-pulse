@@ -1,4 +1,7 @@
-package main
+// Package its turns stored raw responses of the Rio ITS vehicle-positions API into canonical
+// events and per-feed minute statuses. The adapter, the rebuild and the tests all call it on
+// envelopes read back from the raw log, so live ingestion and replay cannot drift apart.
+package its
 
 import (
 	"encoding/json"
@@ -51,8 +54,8 @@ var feedOperators = func() map[string]string {
 	return m
 }()
 
-// mappedFeeds lists the feeds of mappingTable, sorted.
-func mappedFeeds() []string {
+// MappedFeeds lists the feeds of mappingTable, sorted.
+func MappedFeeds() []string {
 	out := make([]string, 0, len(feedOperators))
 	for f := range feedOperators {
 		out = append(out, f)

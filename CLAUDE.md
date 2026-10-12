@@ -23,14 +23,17 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): the ITS adapter is built; no consumer, API, schema in a database or
-map yet.** The repo has a Go module, a Next.js app, local Redpanda + TimescaleDB/PostGIS and a
-real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
+**Status (2026-10-12): the ITS adapter, the positions consumer and the rebuild are built; no
+API or map yet.** The repo has a Go module, a Next.js app, local Redpanda + TimescaleDB/PostGIS
+and a real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
 samples are in `docs/research/samples/`. `docs/tasks/TASK-its-adapter.md` is done: the canonical
 event v1 and `feed-status.v1` (JSON Schema in `packages/contracts`), the raw log
 (`packages/raw`) and `apps/adapter-its`, which publishes `positions.v1` and `feed-status.v1`.
-Its measurements are in that document's §7. Of the four questions the inventory raised
+Its measurements are in that document's §7. `docs/tasks/TASK-positions-consumer.md` is done:
+`packages/its` (the mapping, moved out of the adapter), `packages/store` (the `positions`
+hypertable, `feed_status`, and the two idempotent, order-independent writes), `apps/consumer`
+(topics → database) and `apps/rebuild` (raw log → database), with measurements in its §7. Of the four questions the inventory raised
 (`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
 the identity; ITS API only). #11 and #12 are still open. Read in this order:
 
@@ -97,9 +100,9 @@ upgrading (§2.0).
 | Layer | Choice | Status |
 |---|---|---|
 | Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `apps/<name>` | **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0); the ITS adapter (`apps/adapter-its`, ITS API only) is **built**; other adapters planned |
-| Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client (+ kadm v1.19.0 for topic creation) | **scaffolded** (local compose, `make up`); used by the ITS adapter |
-| Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
-| Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0 | **scaffolded** (local compose; no tables yet) |
+| Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client (+ kadm v1.19.0 for topic creation) | **scaffolded** (local compose, `make up`); used by the ITS adapter and the consumer |
+| Stream processing | Plain consumer group + TimescaleDB continuous aggregates | consumer group (`apps/consumer`) **built**; continuous aggregates planned (decided) |
+| Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0; schema migrations with goose v3.29.0 (embedded SQL in `packages/store/migrations`, Postgres session lock) | **built**: `positions` (hypertable, 1-day chunks, 3-day retention, no compression) and `feed_status` |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
 | API | Serves precomputed views and live positions | planned; **Go** (decided) |
 | Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL + deck.gl and Protomaps `.pmtiles` tiles on S3 + CloudFront come with the map task | Next.js + TanStack Query **scaffolded** (`apps/web/`); map planned (decided) |
@@ -139,7 +142,7 @@ upgrading (§2.0).
      truth.
 3. **Ingestion is idempotent.**
    - Fetching or processing the same provider response twice changes nothing.
-   - Events have a deterministic identity (e.g. operator + vehicle + `event_time`).
+   - Events have a deterministic identity (`operator + feed + vehicle + event_time`; a repeat keeps the copy from the earliest raw minute).
 4. **Be a polite client to every provider.**
    - Poll no faster than the source updates.
    - Use conditional requests where the provider supports them. Verified 2026-10-12:
@@ -237,6 +240,8 @@ transit-pulse/
 ├── var/                         # git-ignored: local raw log (var/raw) and adapter state
 ├── apps/
 │   ├── adapter-its/             # ITS API adapter: raw log first, then positions.v1 + feed-status.v1
+│   ├── consumer/                # positions.v1 + feed-status.v1 -> TimescaleDB, one transaction per batch
+│   ├── rebuild/                 # raw log -> TimescaleDB for a minute range (the same writes as the consumer)
 │   └── web/                     # create-next-app output + TanStack Query provider
 │       ├── app/                 # layout.tsx, providers.tsx, get-query-client.ts
 │       └── hooks/               # every custom hook lives here
@@ -245,6 +250,8 @@ transit-pulse/
 │   ├── samples/                 # loads docs/research/samples/<name> for parser tests
 │   ├── contracts/               # position.v1 and feed-status.v1 JSON Schema + a test validator
 │   ├── event/                   # Position and FeedStatus Go types; Key() and Identity()
+│   ├── its/                     # raw ITS envelope -> events (Events, MinuteEvents) and feed statuses
+│   ├── store/                   # goose migrations, WritePositions / WriteFeedStatus, read helpers for tests
 │   └── raw/                     # append-only raw log: hourly gzip files, byte-exact bodies
 ├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
 ├── scripts/idle-memory.sh       # median-of-3 idle memory per container
@@ -257,7 +264,7 @@ transit-pulse/
 Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
 `apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
 added only when a second JS package exists. Make targets: `up`, `down`, `test`,
-`lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`. No target runs `down -v`: deleting volumes is the
+`lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed

@@ -1,4 +1,4 @@
-package main
+package its
 
 import (
 	"bytes"
@@ -256,7 +256,7 @@ func TestProviderStatusNotOK(t *testing.T) {
 }
 
 func TestMappingTable(t *testing.T) {
-	if got := mappedFeeds(); len(got) != 4 || got[0] != "its:conecta" || got[3] != "its:zirix" {
+	if got := MappedFeeds(); len(got) != 4 || got[0] != "its:conecta" || got[3] != "its:zirix" {
 		t.Errorf("mapped feeds = %v", got)
 	}
 	if feedOperators["its:conecta"] != "rio-sppo" || feedOperators["its:zirix"] != "rio-sppo" ||

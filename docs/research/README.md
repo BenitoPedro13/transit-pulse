@@ -195,6 +195,31 @@ The documentation is readable at
   - **Reliability:** 303 requests, all HTTP 200, no truncated body and no 5xx/429 in this run.
     The retry paths are therefore tested only against synthetic server behaviour (httptest
     serving captured bytes), not against a real provider failure.
+- **What a repeat, `event_time` and `direcao` look like in the same 118 minutes** (measured
+  2026-10-12 for `docs/tasks/TASK-positions-consumer.md` §6 step 1, with a throwaway script
+  over `var/runs/20261012-its-adapter-raw/` that re-derives the identities from the raw
+  bodies: 1,152,239 valid records, 1,099,188 distinct identities, 52,854 repeats, the same
+  numbers as the adapter's):
+  - **A repeat is almost always byte-identical, but not always.** Of the 52,854 repeated
+    copies, **11 differ from the first copy** (latitude and longitude on all 11, `velocidade` on
+    9, `direcao` on 8, `servico` and `route_id` on 11), all `maxtrack`. The other 52,843 are
+    identical in lat, lon, speed, heading, line and route. So "which copy is kept" changes the
+    stored position for those 11, not only `raw_ref`: the rule has to be order-independent
+    (TASK-positions-consumer §2.1 #1).
+  - **The gap between a repeat and its first copy is 1 to 69 minutes** (13,159 repeats are 1
+    minute apart; the counts fall to about 440 per minute-gap at 60–69).
+  - **`event_time` minus the start of its raw minute:** median +21 s, p95 +53 s, p99 +58 s,
+    maximum **+90 s**. No `event_time` is after the response's own `fetched_at`, so nothing is
+    in the future. 608 identities are between +60 s and +90 s.
+  - **Old `event_time`s:** **216 identities (0.02%) are more than 24 h older than their
+    minute**, the oldest by 299 days: `sonda` 215, `zirix` 1. 97 are older than 3 days and 74
+    older than 7 days. They are real fixes that the supplier re-sends (the same stale-clock
+    behaviour as §1.1's `sonda` timestamps). Stored as they are, they would land in **55
+    different one-day chunks** of a table partitioned on `event_time`.
+  - **`direcao` and `velocidade` are not whole numbers.** `direcao` is non-integer in 174,522
+    of 1,094,218 non-null values (e.g. `111.77`, `123.45`), `velocidade` in 4,510 of 1,099,188.
+    As a 4-byte `real`, **169,184 `direcao` and 4,030 `velocidade` values would not round-trip**
+    (`float64(float32(v)) != v`), so the database columns are `double precision`.
 
 ### 1.2 GTFS-Realtime Vehicle Positions (beta)
 
@@ -522,7 +547,17 @@ It fits on the Mac plus an external drive.
   median, or about **15.7 M rows/day** before de-duplication. 3 days of full detail
   (architecture §8) is about **47 M rows**. GTFS-RT alone is about 1,150 entities per 30 s,
   ≈ 38 events/s.
-- `[VERIFY in phase 1: TimescaleDB bytes/row with compression on the t4g.small]`
+- **Measured 2026-10-12 (`docs/tasks/TASK-positions-consumer.md` E7, uncompressed, on the Mac):**
+  after de-duplication the 118-minute run is **1,099,188 rows, 9,315 rows/min, 13.4 M rows/day**.
+  Loaded into the `positions` hypertable (1-day chunks, primary-key index only) they take
+  **317.6 MB, 289 B/row**: 205 MB of table and 96 MB of index. Four days (the most on disk with a
+  3-day retention) is ≈ **14.4 GiB**. A rebuild from the raw log writes **31,530 rows/s** (median
+  of 3 runs, 34.9 s for the 118 minutes), so a 23 h backlog of ≈ 12.9 M rows is about 7 min.
+  The 216 stale `event_time`s (§1.1) add 54 extra chunks totalling 1.7 MB.
+- `[VERIFY in the AWS infra task: rows/s and bytes/row on the t4g.small, and the effect of live
+  arrival order on index size]`. Compression is deliberately off (`INSERT … ON CONFLICT` on
+  compressed chunks is unreliable); `[VERIFY: whether compression ever pays for this table]` is a
+  later question.
 
 ## Samples
 

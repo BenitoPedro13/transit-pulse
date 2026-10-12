@@ -1,6 +1,6 @@
 # TASK: The positions consumer, the schema, and rebuild from the raw log
 
-**Status (2026-10-12): planned, not started.** Written for a Sonnet session to execute end to
+**Status (2026-10-12): done** (results in §7). Written for a Sonnet session to execute end to
 end. The user approved the decisions in §2.1 on 2026-10-12. Read `CLAUDE.md` first, then `docs/tasks/TASK-its-adapter.md` §7 (the facts this task
 builds on), then this document.
 
@@ -104,8 +104,8 @@ One package owns the database shape, so the consumer and the rebuild can't drift
 
 - **Migrations:** SQL files in `packages/store/migrations/`, embedded with `embed.FS`, applied
   by **goose v3** (`github.com/pressly/goose/v3`) through its `Provider` API on a pgx pool,
-  `[VERIFY: current version, the Provider API, and that its Postgres session locker stops two
-  processes from migrating at once]`. `store.Migrate(ctx, pool)` runs on consumer and rebuild
+  `[resolved, §7: v3.29.0; the Provider API and the Postgres session locker exist, and two
+  concurrent Migrate calls both succeed]`. `store.Migrate(ctx, pool)` runs on consumer and rebuild
   start-up. The extensions stay in `infra/postgres/initdb`, as now.
 - **`0001_positions.sql`:**
 
@@ -135,11 +135,11 @@ One package owns the database shape, so the consumer and the rebuild can't drift
 
   - Every field of `position.v1` gets a column, with nulls kept as nulls (missing ≠ zero).
     `speed_kmh` and `heading_deg` are `real`, because the provider sends whole numbers
-    `[VERIFY on the run's raw log that no value loses precision as float32; otherwise use
-    double precision]`.
+    `[resolved, §7: the provider sends fractional values and float32 loses precision on 169,184
+    `direcao` values, so both columns are double precision]`.
   - It becomes a hypertable on `event_time` with **1-day chunks**, and gets a **3-day retention
-    policy** (architecture §8) `[VERIFY: the TimescaleDB 2.30 names, e.g. create_hypertable
-    with by_range and add_retention_policy]`. Retention drops whole chunks, so up to 4 days
+    policy** (architecture §8) `[resolved, §7: the docs now recommend CREATE TABLE … WITH (tsdb.hypertable …) and call
+    create_hypertable() legacy; add_retention_policy is unchanged]`. Retention drops whole chunks, so up to 4 days
     are on disk at any time. E7 projects with 4.
   - The primary key includes `event_time`, which a unique index on a hypertable requires.
 - **`0002_feed_status.sql`:** `feed_status (feed, minute_utc timestamptz, operator, status,
@@ -164,7 +164,7 @@ One package owns the database shape, so the consumer and the rebuild can't drift
 - One binary and one consumer group, `transit-pulse-consumer`, reading `positions.v1` and
   `feed-status.v1`, with franz-go v1.22.1 (already in `go.mod`):
   - `kgo.DisableAutoCommit()`, with `kgo.BlockRebalanceOnPoll()` and `AllowRebalance()`
-    after each batch `[VERIFY: franz-go's documented manual-commit pattern]`;
+    after each batch `[resolved, §7: PollRecords, CommitRecords, AllowRebalance as documented]`;
   - start at the earliest offset when the group has none. The topic holds ≤ 24 h.
 - **The loop:**
   1. Poll.
@@ -223,7 +223,7 @@ One package owns the database shape, so the consumer and the rebuild can't drift
 - **Compression (columnstore) now:** §2.1 #2.
 - **A hand-written migration runner** (renewable-pulse's `db.ts` style): goose is a maintained
   tool with locking, as CLAUDE.md §2 prefers. golang-migrate also works; goose embeds SQL from
-  `embed.FS` with less glue `[VERIFY when choosing]`.
+  `embed.FS` with less glue `[resolved, §7: goose chosen; golang-migrate not evaluated further]`.
 - **A dead-letter topic for undecodable records:** nothing reads one yet. A log line plus the
   raw log is enough.
 - **Two binaries, one per topic:** two groups and two pools for 5,760 status rows a day. One
@@ -311,7 +311,7 @@ Each one is recorded in §7 with numbers. Timings are medians of 3 runs.
     is unchanged, and no row is missing.
   - **(b)** The test stops the TimescaleDB container for 20 s mid-drain, then starts it again
     (`testcontainers` `Stop`/`Start`; the harness may need to return the container, and
-    the mapped port can change on restart `[VERIFY]`, so connect through a DSN read after
+    the mapped port can change on restart `[resolved, §7: it does]`, so connect through a DSN read after
     `Start`). The consumer logs retries, the group's committed offsets
     (`kadm` `FetchOffsets`) don't move during the outage, and every row arrives in the end.
 - **E6 Undecodable record.** One malformed message among valid ones is skipped and counted,
@@ -371,4 +371,120 @@ Each one is recorded in §7 with numbers. Timings are medians of 3 runs.
 
 ## 7. Results
 
-_Not started._
+**Status (2026-10-12): done.** All ten criteria are met. E7's footprint hit the stop rule and the
+user decided (below). E8 is the short smoke check; the sustained live run is deferred to the AWS
+infra task, as agreed.
+
+### Step 1: what the 118-minute raw log says (recorded in research §1.1)
+
+A throwaway script over `var/runs/20261012-its-adapter-raw/` (SHA-256 sums checked first: all
+four files OK) re-derived the identities from the raw bodies and got the adapter's own numbers:
+1,152,239 valid records, **1,099,188 distinct identities, 52,854 repeats**.
+
+- **Repeats are almost always identical.** **11** of the 52,854 copies differ from the first copy
+  (lat and lon on all 11, `velocidade` on 9, `direcao` on 8, `servico` and `route_id` on 11), all
+  `maxtrack`. So the kept copy decides the stored position, not only `raw_ref`: §2.1 #1 matters.
+  Gaps between a repeat and its first copy are 1 to 69 minutes.
+- **`event_time` minus the start of its raw minute:** median +21 s, p95 +53 s, maximum **+90 s**.
+  None is after the response's `fetched_at`: nothing is in the future.
+- **216 identities (0.02%) are more than 24 h older than their minute**, the oldest by 299 days
+  (`sonda` 215, `zirix` 1); 97 are older than 3 days. Stored as they are, they land in 55
+  one-day chunks. **Stop rule hit; the user chose to store them as they are** (2026-10-12). The
+  54 extra chunks total 1.7 MB.
+- **`direcao` and `velocidade` are not whole numbers:** 169,184 `direcao` and 4,030 `velocidade`
+  values do not round-trip as float32 (e.g. `111.77`). So `speed_kmh` and `heading_deg` are
+  **double precision**, not `real`.
+
+### Criteria
+
+| | Result |
+|---|---|
+| **E1** | `Migrate` on an empty database creates both tables. Run again, `goose_db_version` stays at 3 rows (version 0 and the two migrations). Two concurrent `Migrate` calls on a fresh database both succeed. Through `timescaledb_information`: `positions` is a hypertable on `event_time` with **1 day** chunks, has a `policy_retention` job with `drop_after` **3 days** (schedule 1 day), `compression_enabled` is false, `feed_status` is a plain table, and `speed_kmh`/`heading_deg` are `double precision` (`TestStore/migrate`) |
+| **E2** | Events from the four ITS samples through `its.MinuteEvents`, for two raw minutes (so every identity repeats), plus their 8 statuses, produced to real Redpanda and consumed into real TimescaleDB: **160 rows = 160 distinct `Identity()`**, 8 `feed_status` rows. Produced **a second time**: the row counts and the md5 over every column of both tables are identical |
+| **E3** | Store level (`TestStore/order independence`) and end to end (E4). The same two minutes are written in minute order into database A and in reverse into database B, in the same container. The 160 identities all repeat across the two minutes. A writes 160 rows then 0; B writes 160 then 160 (the earlier copy replaces the later one). Both tables read back **equal on every column** (`reflect.DeepEqual` on 160 position rows and 8 status rows, and equal md5), and every kept row has `raw_minute` = the earlier minute in both. Mutation check: with the `WHERE excluded.raw_minute < positions.raw_minute` clause replaced by `true`, the idempotency test (160 rows rewritten) and this test both fail |
+| **E4** | **Test:** a raw log of captured bytes with five minutes: the real three-page chain, two four-page minutes built from the four supplier samples (same bodies, so every identity repeats), one incomplete minute (page 0 plus the real 422), and one absent minute. Path A publishes the newest minute first, `failed` then `gap` for the incomplete one, and `gap` for the absent one, through the consumer. Path B runs the **real `rebuild` binary** (built by the test). The tables hold 174 positions and 20 statuses and are **equal on every column**. **Live data:** see E8: 612,048 rows and 264 statuses, identical md5 |
+| **E5** | **(a)** Batch size 40; the `afterDBCommit` hook cancels the consumer after the first batch. The database held **40 of 160 rows** and the group had **no committed offsets**. A second consumer in the same group drained the topics: **160 rows, 4 statuses, none missing** (every event of the minute is found in the table by identity). **(b)** The TimescaleDB container was stopped for 20 s mid-drain. A retry was logged, the group's committed offsets did **not move** during the outage (the consumer was still behind), and after `Start` the remaining rows arrived: 160 rows and 4 statuses. The test takes 39–41 s. **The mapped port changed on restart (55248 → 55249)**, which is why the consumer connects through `testharness.Proxy` |
+| **E6** | Three broken messages among valid ones (not JSON; valid JSON with an unknown field; a status `"exploded"`): **all three skipped and counted** (`skipped_undecodable` 3 in the batch lines), each logged with topic, partition and offset (the offsets match the produced records), the logged bytes at most 200, and **every valid record after them written** (160 positions, 4 statuses) |
+| **E7** | `make rebuild` over 14:27–16:24 into an empty database wrote **1,099,188 positions and 472 `feed_status` rows, all `ok`**. **Throughput:** 31,530, 34,085 and 31,215 rows/s on fresh databases (34.9, 32.2, 35.2 s): **median 31,530 rows/s** (limit 5,000), so a 23 h backlog of ≈ 12.9 M rows is about 7 min. **Footprint:** `hypertable_size('positions')` = 317,612,032 B = **289 B/row** (205 MB table + 96 MB primary-key index; the day's main chunk alone is 287 B/row). **4 days × 13.4 M rows = 14.4 GiB > 14 GiB: stop rule hit, the user was asked.** Options measured: a slim schema (smallint codes, no `raw_key`) 203 B/row ≈ 10.1 GiB; 2-day retention ≈ 10.8 GiB; a 30 GiB volume. **Decision (user, 2026-10-12): keep the schema, size the volume at 30 GiB** in the AWS task. A second `rebuild` into the same database wrote **0 rows and 0 statuses** and both md5 checksums were unchanged |
+| **E8** | Fresh `transit_pulse` database on the compose stack. The adapter ran with `ITS_BACKFILL_WINDOW=1h` (a 23 h backfill is 70 min): it backfilled 17:21–18:21, caught up at about 18:24, and the **5 live minutes 18:22–18:26** were published 62.7–63.8 s after each minute ended. Every one of them has its position rows (10,157 / 10,123 / 10,026 / 10,052 / 9,769 with that `raw_minute`) and **4 `feed_status` rows**. All 66 minutes (17:21–18:26) have 4 rows, **all `ok`**: 612,048 positions, 264 statuses (the adapter counted 628,017 events; the 15,969 difference, 2.5%, are repeats). **Then `make rebuild` over the same 66 minutes into a second database** wrote 612,048 rows and 264 statuses in 19.2 s (31,919 rows/s), and the md5 over every column of both tables is **identical on both databases**. **As observed, not pass/fail:** the consumer's `oldest_record_age_ms` was 30–500 ms on live batches (median over all 205 batches including the backfill 194 ms, maximum 4,781 ms on one backfill batch), with no warning or error in its log. Its peak RSS over a second 202 s run (a restart from the committed offsets, 5 more live minutes) was **56.8 MB** (`/usr/bin/time -l` maximum resident set size; peak footprint 47.3 MB). SIGINT stopped the consumer and the adapter with exit 0 in 0.15 s each. `make consumer` and `make rebuild` were both run |
+| **E9** | `make lint`: **0 issues** (gofmt, vet, golangci-lint, ESLint). `go test -count=1 ./...`: exit 0, **0 skipped**, 84 passing tests and subtests. Runtime of 3 runs: 89.1 s, 80.7 s, 89.6 s, **median 89.1 s** |
+| **E10** | Docs in §4 updated (below). `grep -n "\[VERIFY" docs/tasks/TASK-positions-consumer.md` lists only this document's own rules and descriptions (§0, §3, E10 and the §7 headings). Every other `[VERIFY]` is marked `[resolved, §7: …]` |
+
+### Resolved `[VERIFY]`s
+
+- **goose:** `github.com/pressly/goose/v3` v3.29.0 (`go list -m -versions`). `goose.NewProvider`
+  with `goose.DialectPostgres`, an `fs.Sub` of the embedded `migrations/`, and
+  `goose.WithSessionLocker(lock.NewPostgresSessionLocker())`. The `*sql.DB` comes from
+  `stdlib.OpenDBFromPool`; closing it does not close the pool (pgx docs). golang-migrate was not
+  evaluated further.
+- **TimescaleDB 2.30.2** ([`create_table`](https://www.tigerdata.com/docs/api/latest/hypertable/create_table),
+  [`create_hypertable`](https://www.tigerdata.com/docs/api/latest/hypertable/create_hypertable),
+  [`add_retention_policy`](https://www.tigerdata.com/docs/api/latest/data-retention/add_retention_policy)):
+  `create_hypertable()` is now documented as legacy and `CREATE TABLE … WITH (tsdb.hypertable,
+  tsdb.partition_column, tsdb.chunk_interval)` is the recommended form, but **its default is
+  `tsdb.columnstore = true`**, so the migration sets `tsdb.columnstore = false` explicitly (§2.1
+  #2). Both forms were tried on the 2.30.2 server and gave the same 1-day dimension and no
+  compression. `add_retention_policy('positions', drop_after => INTERVAL '3 days')` creates a
+  job with a 1-day schedule. A primary key that includes `event_time` was accepted.
+- **franz-go v1.22.1** (`go doc`): `PollRecords`, `DisableAutoCommit`, `BlockRebalanceOnPoll`,
+  `AllowRebalance` and `CommitRecords` work as the plan says. `BlockRebalanceOnPoll` blocks on
+  **any non-empty poll result, including one that only carries an error**, so `AllowRebalance` is
+  called after every poll (see the first deviation below).
+- **float32:** not whole numbers (Step 1), so `double precision`.
+- **Container restart:** the mapped port changes (55248 → 55249).
+
+### Deviations from the plan, and why
+
+1. **`AllowRebalance` after every poll.** The first version returned on a cancelled context
+   before calling it, and `Close()` (leave group) then hung for the whole test timeout. The loop
+   now calls it on every path out of a poll.
+2. **`speed_kmh` and `heading_deg` are `double precision`**, not `real` (Step 1).
+3. **The hypertable uses `CREATE TABLE … WITH (tsdb.hypertable …)`**, not `create_hypertable`
+   (legacy in the current docs), with `tsdb.columnstore = false` and
+   **`tsdb.create_default_indexes = false`**: no query alone by time exists yet, and the primary
+   key is the only index, which keeps bytes/row down. The API task adds an index if a query needs one.
+4. **The E4 test lives in `apps/consumer`** and runs the real `rebuild` binary, because `Rebuild`
+   is in `package main` of `apps/rebuild` and the consumer's is in another. The rebuild also has
+   its own test (`TestRebuildFromTheRawLog`, built from the real paged chain and the real 422).
+5. **E5(b) uses `testharness.Proxy`** (a small TCP forwarder with a fixed address that looks up the
+   container's current port on each dial) because the port moves on restart. The container is
+   really stopped and started; only the consumer's address is stable.
+6. **E8 ran with `ITS_BACKFILL_WINDOW=1h`**, so start-up took about 4 min instead of 70, and the
+   5 live minutes were counted from 18:22 (my first wait script also counted start-up minutes as
+   live and was corrected).
+7. **Extra exports in `packages/store`:** `Querier`, `ReadPositions`, `ReadFeedStatus` and
+   `Checksum`, used by the tests and by the comparisons in E7 and E8. The feed-status write ranks
+   statuses (complete chain > gap > failed; the latest wins among equals) and skips a write that
+   would change nothing.
+8. **The consumer rejects more than invalid JSON.** A record that is valid JSON but could never be
+   written (an empty required text, an unparseable minute, a NUL byte, a status outside the four
+   contract values) is counted as undecodable and skipped. Otherwise one such record would make
+   every attempt to write its batch fail and block the consumer for good. A database error that
+   is not about connectivity is still retried forever, by design: it never skips a batch because
+   the database failed, and logs at most once per 30 s.
+9. **A stop signal between the transaction commit and the offset commit** leaves that batch's
+   offsets uncommitted (the commit uses the cancelled context), so the batch is delivered again on
+   the next start. It is the same case as a crash and harmless. The transaction itself is allowed
+   8 s to finish after the signal.
+10. **`rebuild` indexes one hour file at a time** and, if a file ends in a truncated member, uses
+    the complete ones and says so; it never repairs or otherwise modifies the raw log.
+11. **`DATABASE_URL` has no default** in the consumer and the rebuild, so neither can write to the
+    wrong database by accident. I added the line to my local `.env` (git-ignored); anyone with an
+    older `.env` has to add it from `.env.example`.
+12. **Other work in the tree.** `apps/web`, the `tiles` target in the `Makefile` and one
+    `.gitignore` line belong to another session's uncommitted work (the basemap). I did not touch
+    them and did not commit them.
+
+### Not tested, and open
+
+- **The sustained live run** (30 min: p95 `oldest_record_age_ms` ≤ 5 s, consumer RSS ≤ 100 MiB,
+  TimescaleDB and Redpanda memory, no OOM kill) is **deferred to the AWS infra task**, by the
+  user's decision. Re-measure rows/s and bytes/row on the t4g.small there.
+- **Index growth under live arrival order.** The 289 B/row figure is a bulk load in key order.
+  The 30 GiB volume is the margin for it.
+- **The retention job has not been seen dropping a chunk**: its configuration is checked, but
+  nothing waited 3 days. A rebuild of minutes whose `event_time` is older than 3 days creates
+  chunks that retention drops at its next run.
+- **A poison record that the checks in deviation 8 do not catch** would block its partition,
+  with a retry log every 30 s. The raw log would still have the data.
+- **Compression** is untested on purpose (§2.1 #2).
