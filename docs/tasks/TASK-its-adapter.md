@@ -421,6 +421,10 @@ Each one is recorded in §7 with the numbers. Timings are medians of 3 runs.
 **Status (2026-10-12): done.** All eleven criteria are met, with the deviations listed at the
 end. The live run was a single 60-minute run, not a median of 3 (see "Deviations").
 
+The scripts, logs and raw data behind these numbers are in
+`docs/research/runs/20261012-its-adapter/` (the 41 MB raw log is in git-ignored
+`var/runs/`, see that README).
+
 ### Step 2: `ITS_MINUTE_LAG` (measured)
 
 30 consecutive minutes (14:47–15:16 UTC), 4 fetch times each (`M+90s`, `M+2m`, `M+3m`, `M+10m`

@@ -1,0 +1,11 @@
+2026-10-12T15:26:42Z topics deleted; starting E7 with lag=1m
+2026-10-12T15:26:44Z adapter started pid=21680
+2026-10-12T15:51:47Z E8: stopping adapter for 5 minutes
+2026-10-12T15:51:47Z adapter stopped after s
+2026-10-12T15:56:47Z E8: restarting adapter
+2026-10-12T15:56:49Z adapter started pid=24269
+2026-10-12T16:16:44Z E9: stopping redpanda for 3 minutes
+2026-10-12T16:19:45Z E9: starting redpanda
+2026-10-12T16:19:47Z E9: redpanda healthy
+2026-10-12T16:26:46Z final stop at 60 min (early_stop.sh); adapter exited after 0.13s
+2026-10-12T16:26:46Z done
