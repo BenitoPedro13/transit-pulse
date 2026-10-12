@@ -261,6 +261,14 @@ Provisional numbers, to be re-checked once the source inventory measures the rea
 | Per line, hourly and daily rollups | continuous aggregates | **forever** | |
 | Disk guard | CloudWatch | — | alarm at 70% of the data volume (renewable-pulse `abb09de`) |
 
+**What retention means for replay = live.** `positions` equals a rebuild from the raw log only for
+rows inside the 3-day window: the retention job drops whole chunks, including ones a rebuild has just
+written. Rebuilding minutes older than 3 days into the live database is therefore pointless for
+`positions`; it matters for the aggregates, which are kept forever. The tests pause the job after its
+first run (`testharness.SettleRetention`, `docs/tasks/TASK-replay-flake.md`) so the comparison doesn't
+depend on when that run lands. The odd old fix (`803043`, `event_time` 2026-09-16 in a 2026-10-12 poll)
+is a stale device report; whether to ingest such fixes is left to the delays-by-line task.
+
 ## 9. Replay days (decided 2026-10-12)
 
 The raw log records everything while the service is live, so these are the days the live run

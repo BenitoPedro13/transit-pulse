@@ -238,10 +238,12 @@ func TestHeaderParsing(t *testing.T) {
 func TestSnapshotOnRealData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool := newPool(t, testharness.StartTimescale(t))
+	conn := testharness.StartTimescale(t)
+	pool := newPool(t, conn)
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	testharness.SettleRetention(t, conn)
 	load(t, pool, minute0)
 	asOf := mustTime(t, minute0)
 
@@ -608,10 +610,12 @@ func TestReadersAreIsolated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	ctr := testharness.StartTimescaleContainer(t)
-	pool := newPool(t, testharness.ConnString(t, ctr))
+	conn := testharness.ConnString(t, ctr)
+	pool := newPool(t, conn)
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	testharness.SettleRetention(t, conn)
 	load(t, pool, minute0)
 
 	counting := &countingDB{inner: pool}

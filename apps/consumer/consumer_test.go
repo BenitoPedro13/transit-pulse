@@ -127,6 +127,7 @@ func (e *env) sandbox(t *testing.T, conn string) *sandbox {
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	testharness.SettleRetention(t, dsn)
 	return &sandbox{env: e, opts: opts, pool: pool, dsn: dsn}
 }
 
@@ -472,7 +473,18 @@ func TestConsumer(t *testing.T) {
 		s.waitDrained(30 * time.Second)
 		r.stop(t)
 
-		// Path B: the real rebuild binary over the same raw log.
+		// Path B: the real rebuild binary over the same raw log. Its database is migrated and its
+		// retention job settled here, before any row exists: the binary's own Migrate then does
+		// nothing, and a first retention run can't land in the middle of the rebuild.
+		poolB, err := pgxpool.New(context.Background(), dsnB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(poolB.Close)
+		if err := store.Migrate(context.Background(), poolB); err != nil {
+			t.Fatal(err)
+		}
+		testharness.SettleRetention(t, dsnB)
 		bin := filepath.Join(t.TempDir(), "rebuild")
 		if out, err := exec.Command("go", "build", "-o", bin, "github.com/BenitoPedro13/transit-pulse/apps/rebuild").CombinedOutput(); err != nil {
 			t.Fatalf("build rebuild: %v\n%s", err, out)
@@ -482,11 +494,6 @@ func TestConsumer(t *testing.T) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("rebuild: %v\n%s", err, out)
 		}
-		poolB, err := pgxpool.New(context.Background(), dsnB)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(poolB.Close)
 
 		rows, statuses := counts(t, s.pool)
 		if rows != 160+14 || statuses != 5*4 {

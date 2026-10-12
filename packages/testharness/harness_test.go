@@ -3,6 +3,8 @@ package testharness_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -114,4 +116,81 @@ func timescaleVersion(image string) string {
 		return ""
 	}
 	return image[i+len("-ts"):]
+}
+
+// failRecorder stands in for *testing.T to see whether a helper fails the test: Fatal records the
+// message and ends the goroutine it was called from, as the real one does.
+type failRecorder struct {
+	testing.TB
+	msg string
+}
+
+func (r *failRecorder) Fatal(args ...any) {
+	r.msg = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (r *failRecorder) Fatalf(format string, args ...any) {
+	r.msg = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// TestSettleRetention: the helper waits for the retention job's first run, then pauses the job,
+// and it fails when there is no job to settle.
+func TestSettleRetention(t *testing.T) {
+	container := testharness.StartTimescale(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	t.Run("waits for the first run, then pauses the job", func(t *testing.T) {
+		connString := testharness.NewDatabase(t, container, "settle_ok")
+		conn, err := pgx.Connect(ctx, connString)
+		if err != nil {
+			t.Fatalf("connect: %v", err)
+		}
+		t.Cleanup(func() { _ = conn.Close(context.Background()) })
+		// The same shape as 0001_positions.sql, in plain SQL: testharness doesn't import the store.
+		for _, q := range []string{
+			`CREATE TABLE positions (event_time timestamptz NOT NULL)`,
+			`SELECT create_hypertable('positions', 'event_time', chunk_time_interval => INTERVAL '1 day')`,
+			`SELECT add_retention_policy('positions', drop_after => INTERVAL '3 days')`,
+		} {
+			if _, err := conn.Exec(ctx, q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+
+		start := time.Now()
+		testharness.SettleRetention(t, connString)
+		t.Logf("first retention run settled %s after the policy was created", time.Since(start).Round(time.Millisecond))
+
+		var scheduled bool
+		var totalRuns *int64
+		var status string
+		if err := conn.QueryRow(ctx, `SELECT j.scheduled, js.total_runs, js.job_status
+			FROM timescaledb_information.jobs j JOIN timescaledb_information.job_stats js USING (job_id)
+			WHERE j.proc_name = 'policy_retention' AND j.hypertable_name = 'positions'`).Scan(&scheduled, &totalRuns, &status); err != nil {
+			t.Fatalf("read job: %v", err)
+		}
+		if scheduled || status != "Paused" {
+			t.Errorf("job scheduled = %v, status = %q; want paused", scheduled, status)
+		}
+		if totalRuns == nil || *totalRuns < 1 {
+			t.Errorf("total_runs = %v, want at least 1: the helper must wait for the first run", totalRuns)
+		}
+	})
+
+	t.Run("fails when the database has no retention job", func(t *testing.T) {
+		connString := testharness.NewDatabase(t, container, "settle_none")
+		rec := &failRecorder{TB: t}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			testharness.SettleRetention(rec, connString)
+		}()
+		<-done
+		if !strings.Contains(rec.msg, "no retention job") {
+			t.Errorf("SettleRetention on a database without the job failed with %q, want \"no retention job\"", rec.msg)
+		}
+	})
 }

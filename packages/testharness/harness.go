@@ -4,6 +4,7 @@ package testharness
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -30,6 +31,9 @@ const (
 	DBName = "transit_pulse"
 
 	startTimeout = 3 * time.Minute
+
+	settleTimeout  = 30 * time.Second
+	settlePollTime = 100 * time.Millisecond
 )
 
 // StartRedpanda starts a single-node Redpanda with topic auto-creation and returns its seed
@@ -147,4 +151,52 @@ func NewDatabase(t testing.TB, connString, name string) (newConnString string) {
 		t.Fatalf("create extensions in %s: %v", name, err)
 	}
 	return newConnString
+}
+
+// SettleRetention makes the retention policy on `positions` (0001_positions.sql: drop chunks older
+// than 3 days) harmless to a test. TimescaleDB runs the job for the first time soon after the
+// migration, at a moment the test doesn't control; every fixture is a capture that ages past the
+// window, so a run that lands while rows are being written drops them (TASK-replay-flake §1).
+//
+// It waits for that first run, which finds an empty table and drops nothing, then pauses the job.
+// Waiting first matters: alter_job doesn't stop a run that has already started. Call it right
+// after store.Migrate, before any row is written. It fails the test if the database has no
+// retention job on `positions`, so it can't silently do nothing.
+func SettleRetention(t testing.TB, connString string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, connString)
+	if err != nil {
+		t.Fatalf("connect to timescaledb: %v", err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	for {
+		// total_runs is NULL, not 0, until the first run has happened.
+		var jobID int32
+		var totalRuns *int64
+		var jobStatus *string
+		err := conn.QueryRow(ctx, `SELECT j.job_id, js.total_runs, js.job_status
+			FROM timescaledb_information.jobs j
+			LEFT JOIN timescaledb_information.job_stats js USING (job_id)
+			WHERE j.proc_name = 'policy_retention' AND j.hypertable_name = 'positions'`).Scan(&jobID, &totalRuns, &jobStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			t.Fatal("no retention job on positions: was the database migrated?")
+		}
+		if err != nil {
+			t.Fatalf("read retention job: %v", err)
+		}
+		if totalRuns != nil && *totalRuns >= 1 && jobStatus != nil && *jobStatus != "Running" {
+			if _, err := conn.Exec(ctx, `SELECT alter_job($1, scheduled => false)`, jobID); err != nil {
+				t.Fatalf("pause retention job %d: %v", jobID, err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("retention job %d did not finish its first run within %s", jobID, settleTimeout)
+		case <-time.After(settlePollTime):
+		}
+	}
 }

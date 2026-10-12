@@ -68,10 +68,12 @@ func newPool(t *testing.T, connString string) *pgxpool.Pool {
 // migrated returns a pool on a fresh, migrated database inside the shared container.
 func migrated(t *testing.T, container, name string) *pgxpool.Pool {
 	t.Helper()
-	pool := newPool(t, testharness.NewDatabase(t, container, name))
+	connString := testharness.NewDatabase(t, container, name)
+	pool := newPool(t, connString)
 	if err := store.Migrate(context.Background(), pool); err != nil {
 		t.Fatal(err)
 	}
+	testharness.SettleRetention(t, connString)
 	return pool
 }
 

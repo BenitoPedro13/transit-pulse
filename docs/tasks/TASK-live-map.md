@@ -577,10 +577,9 @@ recording again, run `make api` and `make web-dev` with that `DATABASE_URL`.
     moment of the migration). The test's rebuild writes into a database it has just migrated, so the
     first retention run can land during the rebuild, drop the old chunk, and let the later copy
     re-insert. The live side was migrated earlier and is past that point.
-  - Not fixed here (another task's committed code, and I haven't confirmed the cause). To confirm:
-    run `go test -count=1 -run 'TestConsumer/replay_equals_live' ./apps/consumer/` repeatedly, and wait
-    for `timescaledb_information.job_stats.total_runs >= 1` on the rebuild database before the rebuild
-    starts. Until then `make test` is green most of the time, not always.
+  - Not fixed here (another task's committed code, and I hadn't confirmed the cause).
+    **Confirmed and fixed in `docs/tasks/TASK-replay-flake.md`** (2026-10-12): the hypothesis was right,
+    and the fix is in the test setup only (`testharness.SettleRetention`).
 - `grep -n "\[VERIFY" docs/tasks/TASK-live-map.md` lists only lines 21 and 323, which are the rule and
   the grep command quoted in the plan, not open items. Each `[VERIFY: …]` of the plan became
   `[VERIFIED in §7: …]`. Architecture §10 #8's `[VERIFY]` was closed too.

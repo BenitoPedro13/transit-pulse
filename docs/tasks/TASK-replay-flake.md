@@ -123,4 +123,46 @@ row is written, then switch scheduling off.
 
 ## 6. Results
 
-*(Filled in by the executing session.)*
+Executed 2026-10-12.
+
+**F1: the cause is confirmed.**
+
+- Before the fix, `go test -count=1 -run 'TestConsumer/replay_equals_live' ./apps/consumer/` failed
+  **2 of 10** runs. Both failures: `positions: 174 rows vs 172` (the rebuilt table lost 2 rows; a
+  different signature from the kept `803043` failure, same family).
+- A temporary `t.Log` of `job_stats` (never committed, reverted) over 14 more runs caught 1 failure.
+  Database B's first retention run started at 17:19:17.989 (-03) = 20:19:17.989 UTC, and the rebuild
+  ran 20:19:17.029 .. 20:19:18.004 UTC: the run started **0.96 s into the rebuild**. Database A's
+  job had run about 5 s before its inserts.
+- In the 13 passing runs, B's job had not run when the rebuild finished (`total_runs` was **NULL**,
+  not 0). The first run's timing is up to the scheduler, so the race is real and independent of the
+  rebuild, which only takes about 0.5 s.
+- The first retention run fires between 20 ms and about 2 s after the policy is created (3 samples
+  from `TestSettleRetention`).
+
+**What changed**
+
+- `[VERIFIED: tigerdata docs, jobs-automation/alter_job and informational-views/job_stats]`
+  `alter_job(job_id, scheduled => false)` exists and is documented only as excluding the job from
+  background runs; it says nothing about a run already in progress, so the helper waits for the first
+  run first. `job_stats` has `total_runs`, `job_status` (`Running`/`Scheduled`/`Paused`). The docs
+  don't say `total_runs` is NULL before the first run; observed on 2.30.2, so the helper treats NULL as
+  "not yet".
+- `testharness.SettleRetention` as planned, plus `TestSettleRetention` (waits then pauses; fails with
+  "no retention job" on a database that isn't migrated).
+- Call sites: `consumer_test.go` sandbox, `rebuild_test.go`, `api_test.go` (both), and the `migrated`
+  helper of `store_test.go` (so every store subtest that writes rows is covered; the Migrate-itself
+  tests were left alone). Path B in `replay equals live` migrates and settles `dsnB` before running the
+  binary.
+- **Cost:** `replay equals live` went from about 6.6 s to about 10 s, because each new database waits
+  for its first retention run.
+
+**Verification**
+
+- **F2:** 20 of 20 passed (was 8 of 10 before).
+- **F3:** `go test -count=1 -v ./...` passed 3 of 3, 0 skipped, 0 failed. Consumer package: 86 s, 91 s,
+  88 s.
+- **F4:** with `drop_after` temporarily set to `'1 second'` in `0001_positions.sql`, consumer, rebuild
+  and api passed 3 of 3. Not run for `packages/store`, whose test asserts `3 days`. **The edit was
+  reverted** (`git status` clean for the migration).
+- `make lint`: 0 issues.

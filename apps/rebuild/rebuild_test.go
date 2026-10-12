@@ -82,6 +82,7 @@ func TestRebuildFromTheRawLog(t *testing.T) {
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	testharness.SettleRetention(t, conn)
 
 	from, _ := time.Parse(time.RFC3339, m0)
 	to, _ := time.Parse(time.RFC3339, m2)
