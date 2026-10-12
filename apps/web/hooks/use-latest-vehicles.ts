@@ -151,17 +151,23 @@ export function formatCoverage(c: Coverage): string {
   return `${c.label}${tier}: ${parts.join(", ") || "sem dados"}`;
 }
 
-export const latestVehiclesQueryOptions = queryOptions({
+// The request itself, with no select: every derived hook (fleet stats, line index, ...) reads this
+// one query through its own module-level select, so there is a single fetch and a single cache entry.
+export const snapshotQueryOptions = queryOptions({
   queryKey: ["vehicles", "latest"],
   queryFn: async (): Promise<Snapshot> => {
     const res = await fetch("/api/v1/vehicles/latest");
     if (!res.ok) throw new Error(`GET /api/v1/vehicles/latest answered ${res.status}`);
     return res.json();
   },
-  // Rows are derived once per response; select is a module-level function so its result is cached.
-  select: (snapshot): LatestVehicles => ({ snapshot, rows: toRows(snapshot) }),
   // The data changes once a minute; the API answers from memory (and 304 when nothing moved).
   refetchInterval: 30_000,
+});
+
+export const latestVehiclesQueryOptions = queryOptions({
+  ...snapshotQueryOptions,
+  // Rows are derived once per response; select is a module-level function so its result is cached.
+  select: (snapshot): LatestVehicles => ({ snapshot, rows: toRows(snapshot) }),
 });
 
 export function useLatestVehicles() {

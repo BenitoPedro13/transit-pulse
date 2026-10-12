@@ -11,7 +11,7 @@ It's also a portfolio case study in distributed, data-heavy real-time systems:
 - rebuildable projections;
 - a static replay that keeps working after the live backend is switched off.
 
-**Status: the ITS adapter, the consumer, the rebuild, the API and the first screen are built.** The repo has a Go module, a Next.js app
+**Status: the ITS adapter, the consumer, the rebuild, the API and the dashboard are built.** The repo has a Go module, a Next.js app
 (`apps/web`), local Redpanda + TimescaleDB/PostGIS and a test harness that runs against real
 infrastructure. The source inventory is verified (2026-10-12): Rio's city buses and BRT are
 live; rail, metro, tram, ferries, intercity and Niterói buses have no public machine-readable
@@ -23,9 +23,12 @@ both topics to TimescaleDB (`positions`, a hypertable kept for 3 days, and `feed
 forever), and `apps/rebuild` rebuilds the same tables from the raw log (plan and measurements in
 [`docs/tasks/TASK-positions-consumer.md`](docs/tasks/TASK-positions-consumer.md)). `apps/api` serves
 the latest vehicle positions from an in-memory snapshot (it queries the database once per new
-minute, never per request), and `apps/web` draws them on a Rio map with a table and a status strip
-that says plainly whether the data is live, stale or failed (plan and measurements in
-[`docs/tasks/TASK-live-map.md`](docs/tasks/TASK-live-map.md)). The raw log isn't uploaded to S3 yet.
+minute, never per request), and `apps/web` draws them on a full-bleed Rio map with a letreiro (the amber LED sign of a Rio
+bus) that says plainly whether the data is live, stale or failed, a panel to explore lines and
+buses (pick a line, click a bus, follow it, colour by speed; the view lives in the URL), and a
+table at `/tabela` as the non-map alternative (plans and measurements in
+[`docs/tasks/TASK-live-map.md`](docs/tasks/TASK-live-map.md) and
+[`docs/tasks/TASK-dashboard.md`](docs/tasks/TASK-dashboard.md)). The raw log isn't uploaded to S3 yet.
 
 ## Setup
 

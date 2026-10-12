@@ -108,12 +108,12 @@ export default function VehicleTable({ rows, pageIndex, onPageIndexChange, capti
   return (
     <div>
       <div tabIndex={0} role="region" aria-label="Tabela de veículos, rolagem horizontal"
-        className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+        className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-xs">
-          <caption className="pb-2 text-left text-sm text-zinc-800">{caption}</caption>
+          <caption className="pb-2 text-left text-sm text-calcadao">{caption}</caption>
           <thead>
             {table.getHeaderGroups().map((group) => (
-              <tr key={group.id} className="border-b border-zinc-400">
+              <tr key={group.id} className="border-b border-borda">
                 {group.headers.map((header) => {
                   const sorted = header.column.getIsSorted() as SortDirection | false;
                   return (
@@ -126,7 +126,7 @@ export default function VehicleTable({ rows, pageIndex, onPageIndexChange, capti
                       <button
                         type="button"
                         onClick={header.column.getToggleSortingHandler()}
-                        className="rounded px-1 py-0.5 font-semibold whitespace-nowrap hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-blue-700"
+                        className="rounded px-1 py-0.5 font-semibold whitespace-nowrap hover:bg-accent"
                       >
                         {header.column.columnDef.header as string}
                         <span aria-hidden="true">{sorted ? ` ${ARROW[sorted]}` : ""}</span>
@@ -139,7 +139,7 @@ export default function VehicleTable({ rows, pageIndex, onPageIndexChange, capti
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-zinc-200">
+              <tr key={row.id} className="border-b border-border/40">
                 {row.getAllCells().map((cell) => (
                   <td key={cell.id} className="py-1 pr-2 whitespace-nowrap">
                     <table.FlexRender cell={cell} />
@@ -155,7 +155,7 @@ export default function VehicleTable({ rows, pageIndex, onPageIndexChange, capti
           type="button"
           onClick={() => table.previousPage()}
           disabled={!table.getCanPreviousPage()}
-          className="rounded border border-zinc-500 px-2 py-1 enabled:hover:bg-zinc-200 disabled:text-zinc-500 focus-visible:outline-2 focus-visible:outline-blue-700"
+          className="rounded border border-border px-2 py-1 enabled:hover:bg-accent disabled:text-neblina"
         >
           Anterior
         </button>
@@ -166,7 +166,7 @@ export default function VehicleTable({ rows, pageIndex, onPageIndexChange, capti
           type="button"
           onClick={() => table.nextPage()}
           disabled={!table.getCanNextPage()}
-          className="rounded border border-zinc-500 px-2 py-1 enabled:hover:bg-zinc-200 disabled:text-zinc-500 focus-visible:outline-2 focus-visible:outline-blue-700"
+          className="rounded border border-border px-2 py-1 enabled:hover:bg-accent disabled:text-neblina"
         >
           Próxima
         </button>

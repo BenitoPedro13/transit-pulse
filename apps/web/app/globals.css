@@ -1,26 +1,198 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
+/* The system colour scheme is the only switch: there is no manual toggle and no `.dark` class. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+ * Tokens (docs/tasks/TASK-dashboard.md §2.2, ratios in §6). Every value was checked with a WCAG
+ * relative-luminance script: text >= 4.5:1; bus/BRT marks, speed bins, focus ring and panel edges
+ * >= 3:1 against the basemap's earth, water, buildings and parks (components/basemap.ts).
+ * components/vehicle-style.ts holds the same hex values for deck.gl, and its test fails if the two drift.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  color-scheme: light dark;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --baia: #eef2f1; /* page and map base */
+  --morro: #ffffff; /* panels */
+  --morro-alto: #e3ebea; /* hover on a panel */
+  --calcadao: #0b1f26; /* text */
+  --neblina: #4a6066; /* secondary text */
+  --borda: #5c7279; /* panel and control edges */
+  --focus: #0a5c8c;
+  --ceu: #0a6fa8; /* bus */
+  --coral: #c2412f; /* BRT */
+
+  /* The letreiro is a dark panel in both schemes, like the real sign. */
+  --letreiro: #ffb341;
+  --letreiro-bg: #07161b;
+
+  /* Speed bins, slow to fast: <3, 3-15, 15-30, 30-50, >=50 km/h. Faster is darker on light. */
+  --vel-0: #a2650a;
+  --vel-1: #8c5000;
+  --vel-2: #763c00;
+  --vel-3: #612900;
+  --vel-4: #4c1500;
+
+  /* Status markers; the words carry the meaning, these only add to it. */
+  --status-live: #1b7f55;
+  --status-stale: #8a5a00;
+  --status-failed: #b3342a;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --baia: #0b1f26;
+    --morro: #12303a;
+    --morro-alto: #1a4350;
+    --calcadao: #e8f0ee;
+    --neblina: #8fa9ae;
+    --borda: #5a808b;
+    --focus: #ffb341;
+    --ceu: #7fd4ff;
+    --coral: #ff6b5a;
+
+    /* Faster is lighter on dark: the corridors glow. */
+    --vel-0: #af711f;
+    --vel-1: #c78533;
+    --vel-2: #de9b4b;
+    --vel-3: #f0b370;
+    --vel-4: #ffcd97;
+
+    --status-live: #5fd39a;
+    --status-stale: #ffb341;
+    --status-failed: #ff8a7a;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-baia: var(--baia);
+  --color-morro: var(--morro);
+  --color-morro-alto: var(--morro-alto);
+  --color-calcadao: var(--calcadao);
+  --color-neblina: var(--neblina);
+  --color-borda: var(--borda);
+  --color-focus: var(--focus);
+  --color-ceu: var(--ceu);
+  --color-coral: var(--coral);
+  --color-letreiro: var(--letreiro);
+  --color-letreiro-bg: var(--letreiro-bg);
+  --color-vel-0: var(--vel-0);
+  --color-vel-1: var(--vel-1);
+  --color-vel-2: var(--vel-2);
+  --color-vel-3: var(--vel-3);
+  --color-vel-4: var(--vel-4);
+  --color-status-live: var(--status-live);
+  --color-status-stale: var(--status-stale);
+  --color-status-failed: var(--status-failed);
+
+  /* shadcn's semantic names, pointed at the tokens above so nothing keeps its default palette. */
+  --color-background: var(--baia);
+  --color-foreground: var(--calcadao);
+  --color-card: var(--morro);
+  --color-card-foreground: var(--calcadao);
+  --color-popover: var(--morro);
+  --color-popover-foreground: var(--calcadao);
+  --color-primary: var(--calcadao);
+  --color-primary-foreground: var(--baia);
+  --color-secondary: var(--morro);
+  --color-secondary-foreground: var(--calcadao);
+  --color-muted: var(--morro);
+  --color-muted-foreground: var(--neblina);
+  --color-accent: var(--morro-alto);
+  --color-accent-foreground: var(--calcadao);
+  --color-destructive: var(--status-failed);
+  --color-border: var(--borda);
+  --color-input: var(--borda);
+  --color-ring: var(--focus);
+
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-letreiro: var(--font-doto), ui-monospace, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  --animate-roll-in: roll-in 300ms ease-out both;
+  --animate-roll-out: roll-out 300ms ease-out both;
+}
+
+@keyframes roll-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes roll-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-variant-numeric: tabular-nums;
+  }
+  /* One focus ring for everything: 2px, offset, 3:1 against the panel and the map. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+/* The letreiro's faint dot grid. Decoration only: the text is real text on top of it. */
+.letreiro-grid {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--letreiro) 14%, transparent) 1px,
+    transparent 1.3px
+  );
+  background-size: 6px 6px;
+}
+
+/* MapLibre's controls and canvas get the same focus ring as the rest of the page. */
+.maplibregl-canvas:focus-visible,
+.maplibregl-canvas-container:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/*
+ * MapLibre's zoom buttons must not hide under the floating panels. Desktop: just left of the 22 rem
+ * panel, at the top. Phone: bottom right, just above the panel (--panel-h is set by the dashboard).
+ */
+@media (min-width: 1024px) {
+  div.maplibregl-ctrl-top-right {
+    right: 23rem;
+  }
+}
+@media (max-width: 1023.98px) {
+  div.maplibregl-ctrl-top-right {
+    top: auto;
+    bottom: var(--panel-h, 33svh);
+  }
+}
+
+/* MapLibre's zoom and attribution buttons use the same focus ring as everything else. */
+.maplibregl-ctrl button:focus-visible,
+.maplibregl-ctrl-attrib summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  box-shadow: none;
 }

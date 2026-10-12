@@ -1,6 +1,6 @@
 # TASK-dashboard (D1)
 
-> Written 2026-10-12. The first step of `docs/research/ux-direction.md` §3 ("Rio em movimento").
+> **Done 2026-10-12 (results in §6).** Written 2026-10-12. The first step of `docs/research/ux-direction.md` §3 ("Rio em movimento").
 > It replaces the earlier `TASK-ui-lines.md` (U0, superseded before it ran; same file, renamed).
 > **Web only, plus one read of the existing API.** No schema, pipeline or API change.
 >
@@ -280,4 +280,226 @@ Run against `make api` on `transit_pulse_run`, in `next dev` and in `next build 
 
 ## 6. Results
 
-*(Filled in by the executing session.)*
+Done 2026-10-12. Verified against `make api`-equivalent on `transit_pulse_run` (the API was already
+serving it on `:8080`: 2,627 vehicles, newest minute 2026-10-12T16:24Z = 13:24 in Rio), in `next dev`
+while building and in `next build && next start` for every number below. The browser was system Chrome
+driven by Playwright (`playwright-core`, `axe-core` 4.14.0) from a scratch project outside the repo;
+the Claude-in-Chrome extension wasn't needed. The screenshots, axe and the flow scripts ran with
+software GL (SwiftShader, as in `TASK-live-map.md` §7), so their timings are slow; the frame-rate runs
+(D1.7) ran on the real GPU (`ANGLE (Apple, ANGLE Metal Renderer: Apple M2)`).
+
+### `[VERIFY]` items resolved
+
+- **shadcn CLI 4.21.4** supports Tailwind v4 + Next 16.4 + React 19.3. `shadcn init` prompts for a
+  preset even with `-y`; the command that works non-interactively is
+  `pnpm dlx shadcn@latest init -t next -b radix -p nova -y --no-monorepo --no-rtl`, then
+  `shadcn add tabs toggle-group` (`toggle` came as a dependency of `toggle-group`; `button` from init).
+  This CLI imports `cn` from a package named `cn` (0.4.0, repository `shadcn-ui/cn`, a clsx +
+  tailwind-merge replacement), not from clsx/tailwind-merge. Added to `package.json`:
+  `class-variance-authority`, `cn`, `lucide-react`, `radix-ui`, `shadcn`, `tw-animate-css`. The four
+  generated components were then re-themed by hand onto the tokens (no `dark:` variants, no default
+  palette).
+- **Tailwind v4:** `@theme inline` maps `--color-*` and `--font-*` to the CSS variables; it works as
+  planned. Dark is `@media (prefers-color-scheme: dark)`; shadcn's `dark:` variant is redefined with
+  `@custom-variant dark (@media (prefers-color-scheme: dark))`.
+- **Fonts on Google Fonts / `next/font`:** Archivo has `wdth` 62–125 and `wght` 100–900; Doto has
+  `wght` 100–900 and `ROND` 0–100 (only `wght` is used). Both load through `next/font/google`
+  (`axes: ["wdth"]` for Archivo, `weight: "variable"` for Doto). The condensed cut is `font-stretch: 75%`.
+- **Protomaps `Flavor` keys** (`@protomaps/basemaps` 5.7.2, `Flavor` is exported): the overridden ones
+  are `background`, `earth`, `water`, `buildings`, `park_a/b`, `wood_a/b`, `scrub_a/b`, `minor_a/b`,
+  `other`, `minor_service`, `major`, `link`, `highway` and six label colours (dark); `background`,
+  `earth`, `water`, `buildings`, parks, woods, scrubs and `minor_a` (light). The file is
+  `components/basemap.ts`.
+- **deck.gl 9.4 / luma.gl 9.4.2 blending:** the layer's `parameters` take `blend`,
+  `blendColorOperation: "add"`, `blendColorSrcFactor: "src-alpha"`, `blendColorDstFactor: "one"`,
+  `blendAlphaOperation: "add"`, `blendAlphaSrcFactor: "one"`, `blendAlphaDstFactor:
+  "one-minus-src-alpha"` (`@luma.gl/core/dist/adapter/types/parameters.d.ts`).
+- **`useSearchParams` under `cacheComponents`:** the Next 16.4 guide
+  (`use-search-params.md`, "Prerendering") says the client tree up to the nearest `<Suspense>` renders in
+  the browser, and recommends a boundary. `app/page.tsx` and `app/tabela/page.tsx` have one; the build
+  prerenders both routes as static (`○`).
+
+### Tokens, with every pair measured
+
+Checked with a WCAG 2.x relative-luminance script (`scratchpad/contrast.mjs`, `final.mjs`), not by eye.
+Basemap colours are the overrides in `components/basemap.ts`: dark earth `#0e252d`, water `#081a21`,
+buildings `#0a1c22`, parks `#12322f`, background `#0b1f26`; light earth `#e7edeb`, water `#b9dce3`,
+buildings `#d5dedc`, parks `#bfdccb`, background `#dde6e4`. "Worst" is the lowest of those five.
+
+| Pair | Foreground | Background | Ratio | Needs | Result |
+|---|---|---|---|---|---|
+| dark: calçadão on baía | `#e8f0ee` | `#0b1f26` | 14.64 | ≥ 4.5 | ok |
+| dark: calçadão on morro | `#e8f0ee` | `#12303a` | 12.01 | ≥ 4.5 | ok |
+| dark: neblina on baía | `#8fa9ae` | `#0b1f26` | 6.83 | ≥ 4.5 | ok |
+| dark: neblina on morro | `#8fa9ae` | `#12303a` | 5.60 | ≥ 4.5 | ok |
+| light: calçadão on baía | `#0b1f26` | `#eef2f1` | 15.03 | ≥ 4.5 | ok |
+| light: calçadão on morro | `#0b1f26` | `#ffffff` | 16.96 | ≥ 4.5 | ok |
+| light: neblina on baía | `#4a6066` | `#eef2f1` | 5.90 | ≥ 4.5 | ok |
+| light: neblina on morro | `#4a6066` | `#ffffff` | 6.65 | ≥ 4.5 | ok |
+| letreiro text on its panel (both schemes) | `#ffb341` | `#07161b` | 10.33 | ≥ 4.5 | ok |
+| letreiro text on a lit dot of the grid (worst case) | `#ffb341` | `#2a2c20` | 7.96 | ≥ 4.5 | ok |
+| status marker, dark live | `#5fd39a` | `#12303a` | 7.47 | ≥ 3 | ok |
+| status marker, dark stale | `#ffb341` | `#12303a` | 7.80 | ≥ 3 | ok |
+| status marker, dark failed | `#ff8a7a` | `#12303a` | 6.07 | ≥ 3 | ok |
+| status marker, light live | `#1b7f55` | `#ffffff` | 4.98 | ≥ 3 | ok |
+| status marker, light stale | `#8a5a00` | `#ffffff` | 5.93 | ≥ 3 | ok |
+| status marker, light failed | `#b3342a` | `#ffffff` | 6.10 | ≥ 3 | ok |
+| dark: panel edge (--borda) vs earth/water/buildings/park/background, worst | `#5a808b` | — | 3.21 | ≥ 3 | ok |
+| dark: panel edge on panel | `#5a808b` | `#12303a` | 3.24 | ≥ 3 | ok |
+| dark: focus ring vs basemap, worst | `#ffb341` | — | 7.73 | ≥ 3 | ok |
+| dark: focus ring on panel | `#ffb341` | `#12303a` | 7.80 | ≥ 3 | ok |
+| light: panel edge (--borda) vs earth/water/buildings/park/background, worst | `#5c7279` | — | 3.46 | ≥ 3 | ok |
+| light: panel edge on panel | `#5c7279` | `#ffffff` | 5.07 | ≥ 3 | ok |
+| light: focus ring vs basemap, worst | `#0a5c8c` | — | 4.90 | ≥ 3 | ok |
+| light: focus ring on panel | `#0a5c8c` | `#ffffff` | 7.19 | ≥ 3 | ok |
+
+**Marks against the basemap** (worst of the five colours; every one is on parks, the darkest-contrast
+land in dark and the most saturated in light):
+
+| Scheme | bus | BRT | no speed / selected ring | bin 0 (<3) | bin 1 (3–15) | bin 2 (15–30) | bin 3 (30–50) | bin 4 (≥50) |
+|---|---|---|---|---|---|---|---|---|
+| dark | `#7fd4ff` 8.38 | `#ff6b5a` 4.93 | `#e8f0ee` 11.90 | `#af711f` 3.42 | `#c78533` 4.49 | `#de9b4b` 5.84 | `#f0b370` 7.48 | `#ffcd97` 9.48 |
+| light | `#0a6fa8` 3.72 | `#c2412f` 3.50 | `#0b1f26` 11.56 | `#a2650a` 3.25 | `#8c5000` 4.39 | `#763c00` 5.92 | `#612900` 7.84 | `#4c1500` 10.12 |
+
+All ≥ 3:1. The speed ramp is one hue (OKLCH hue 68°, amber, the letreiro's colour): faster is lighter
+on dark and darker on light, adjacent steps differ by ΔL 0.068–0.070 (lightness is the encoding, so
+the colour-blind-pair check doesn't apply to a one-hue ramp). Against the dark roads (`#143038`,
+`#183843`, `#1d4350`) bin 0 is 3.4 / 3.1 / 2.6: roads are thin lines, not a dominant land colour, and
+the white-outline halo of the old layer is gone (see deviations), so the bin 0 mark over a highway
+casing is the one pair below 3:1; the 12 px mark is never fully inside a 2 px line.
+
+**The glow.** In the dark scheme with "colorir por modo" a mark is drawn at alpha 190/255 with additive
+blending, so its colour on the dark earth is the mark colour × 0.745 + the map: bus worst 7.84:1, BRT
+worst 4.67:1 (on parks), both ≥ 3:1. The first version drew at alpha 1 and every dense corridor
+saturated to white, which hid the shapes and the colour.
+
+### Verification
+
+- **D1.1 the numbers ✅.** `jq` on the full snapshot (`curl /v1/vehicles/latest`, 2,627 vehicles),
+  independent of the app: bus 2,350, BRT 277, with speed 2,627, moving (≥ 3 km/h) 1,120, no speed 0,
+  share 42.63 %, median speed of the moving 29 km/h, top 8 `GARAGEM·47 483·28 ESPECIAL·23 10·21 639·20
+  0·19 17·19 328·19`. The Agora panel reads `2.350`, `277`, `43%` with `sem velocidade: 0`, `29,0 km/h`
+  and the same eight buttons in the same order (`verify.mjs`, printed PASS).
+- **D1.2 the line flow ✅.**
+  - "47" lists 472, 473, 474, 476 (`jq`: the same four).
+  - Selecting 483 gives the URL `?linha=483`, the sign `483 · 28 ÔNIBUS` (`jq`: 28), the other vehicles
+    at 15 %, and the map fitted to the line (`docs/tasks/assets/dashboard-linha-*`).
+  - After a drag, two refetches (65 s) left the screenshot byte-identical: the map isn't pulled back.
+  - "Limpar linha" returns to `/` and `13:24 · 2.627 ÔNIBUS NA RUA`.
+  - Click to sign update: 16 ms (the URL goes through `router.replace`; no lag, so no optimistic copy).
+- **D1.3 the bus flow ✅.**
+  - A click on the map selects a bus (deck.gl `onClick`: `/?onibus=B31091`); the panel's bus list does
+    the same.
+  - The card for B31029 reads line 483, `0 km/h`, `0°, norte`, `visto há 10 s`, operator `Ônibus
+    municipais (SPPO)`. Its row in `/tabela` is `483 · B31029 · Ônibus · Ônibus municipais (SPPO) · 10 s ·
+    0 km/h · 0°`, and `jq` gives `speed_kmh 0, heading_deg 0, event_time 16:24:50Z` (end of the minute
+    16:25:00 − 16:24:50 = 10 s).
+  - **Seguir:** a drag turns it off (`aria-pressed` true → false). Recentring: with Seguir on, the bus's
+    ring sits at (548, 462), the centre of the free part of the map (desktop padding left 64, right
+    408, top 96, bottom 72), 1.5 s after the click, and again after a refetch. **That refetch was
+    served with one bus moved +0.04° lon / +0.02° lat by a Playwright route in the test browser only**,
+    because the recorded data never changes between refetches. The app never shows that position;
+    nothing synthetic is stored or drawn outside the test.
+  - `/?linha=ZZZ&onibus=ZZ9`: the sign reads `ZZ9 · NÃO APARECE`, the card says "Não aparece no último
+    minuto gravado (13:24).", Seguir is disabled, and the Linhas tab says "A linha ZZZ não está no último
+    minuto gravado." No position is shown.
+- **D1.4 URL ✅.** Loading `/?linha=483&onibus=B31029&cor=velocidade` restores the line, the Ônibus tab,
+  the card and the "velocidade" toggle. The "Ver como tabela" link goes to `/tabela?linha=483`, whose
+  caption is "28 veículos da linha 483 no último minuto gravado" with every row on line 483.
+- **D1.5 screens ✅.** 16 screenshots (2 viewports × 2 schemes × default, line, bus, speed) are in
+  `docs/tasks/assets/dashboard-<state>-<viewport>-<scheme>.png`, from the production build. No
+  horizontal scroll in any of them at 390 px, nor on `/tabela` at 390 px.
+- **D1.6 accessibility ✅.**
+  - **axe-core 4.14.0**, tags `wcag2a wcag2aa wcag21aa wcag22aa`: **0 violations in all 24 runs** =
+    2 viewports (1440 × 900, 390 × 844) × 2 schemes (Playwright `colorScheme`) × 6 states (`/` Agora,
+    `/` Linhas, `/` with a bus and speed colours, `/` with an unknown bus, `/tabela`, `/tabela?linha=483`).
+  - Each run reports 1 "incomplete" rule, `color-contrast`, which axe couldn't decide. Their causes,
+    listed by axe: the letreiro's text over its dot-grid gradient (measured above: 7.96:1 on a lit
+    dot), the `◐` status glyph (`aria-hidden`, decorative), and, only on the phone `/tabela`, table
+    headers scrolled out of the scroll area ("partially obscured").
+  - **Keyboard only** (Tab, dark and light): letreiro → "Ver como tabela" → the tabs → the panel (every
+    top-line button; on the Linhas tab "Limpar linha", every bus button, the search, every line button;
+    on the Ônibus tab Seguir and "Limpar ônibus") → the colour toggle → the map → zoom in → zoom out →
+    attribution. Every stop has a 2 px solid ring (`#ffb341` dark, `#0a5c8c` light). The map is last in the
+    source, so the page's own controls come first. The group of tabs and the colour toggle are roving
+    (arrow keys), as Radix does it.
+  - **Reduced motion:** with `prefers-reduced-motion: reduce` no outgoing aria-hidden copy appears in the
+    sign and no animation runs on it (normal motion: the copy appears and `animate-roll-*` runs for
+    300 ms); Seguir lands on the bus within the first screenshot (578 ms, ring at (548, 462)) where
+    normal motion is still mid-ease at 721 ms ((669, 397)): `jumpTo` vs `easeTo`.
+  - **Status announcement exactly once per change:** a `MutationObserver` on the `role="status"`
+    region saw `["Não está ao vivo."]` after load and two refetches (0 further changes); one refetch
+    served as a failed feed (a test-only route that rewrote `feeds_by_status`) added exactly one
+    (`Atenção: falha…`) and the recovery exactly one more.
+- **D1.7 performance ✅.** All 2,627 vehicles, 1440 × 900, panning by a continuous mouse drag for 10 s,
+  frames counted with `requestAnimationFrame`, median of 3 runs, real GPU (Apple M2, Chrome headless):
+
+  | Configuration | Runs (fps) | Median |
+  |---|---|---|
+  | dark, modo, glow on | 59.9, 59.9, 59.8 | **59.9** |
+  | dark, velocidade (no glow) | — | 59.6 |
+  | light, modo | — | 59.9 |
+  | dark, modo, line 483 selected (dimming) | — | 60.0 |
+
+  60 fps is the display's cap, so the glow costs nothing measurable and stays.
+- `make lint`, `make test` (all Go packages and **51 Vitest tests in 3 files**) and `make web-build`
+  pass.
+
+### Where this differs from the plan
+
+1. **No white halo around the marks.** The old layer needed it against dark map features. Every mark is now
+   ≥ 3:1 against the land and water on its own (table above), so the atlas holds five white shapes tinted
+   per vehicle (mask icons): filled circle, filled square, their hollow rings, and the selected bus's large
+   ring.
+2. **The glow is for "colorir por modo" only.** In "velocidade" the dense corridors turned yellow-white and
+   the five bins stopped being tellable apart, so that mode uses normal blending in both schemes.
+3. **The ≥ 50 bin is half-open** `[50, ∞)`, not "> 50", so the bins never overlap (`<3`, `[3,15)`,
+   `[15,30)`, `[30,50)`, `≥50`). The legend says "50 ou mais".
+4. **Colour control and legend** are the panel's footer on a phone (so they stay visible when it's
+   collapsed) and float at the bottom left on a desktop. The collapsed phone panel is up to 33 % of the
+   height, not 25 %, to fit them.
+5. **Map controls moved:** the zoom buttons sit left of the panel on a desktop and above it on a phone
+   (`--panel-h`), because the panel hid them. "Ver como tabela" sits above the attribution on a desktop so
+   it doesn't cover OpenStreetMap's credit.
+6. **`/tabela?linha=` is the exact line** the dashboard has selected, so the table shows the same
+   vehicles; the "Filtrar por linha" box (prefix match, not in the URL) narrows it further. The sign
+   "Mostrando só a linha 483" has a "Mostrar todas as linhas" button.
+7. **Selecting a bus doesn't change the line.** The selected bus is always drawn at full opacity, even if
+   its line is dimmed; choosing a line drops a selected bus.
+8. **Only a drag turns Seguir off**, not a wheel zoom, the zoom buttons or the keyboard.
+9. **Refetch interval is 30 s** (the task text says 15 s; the code already was 30 s and the data changes
+   once a minute).
+10. **Names:** the shared request is `snapshotQueryOptions` (no `select`); `latestVehiclesQueryOptions`
+    keeps its `select` for the table. Every derived hook (`useFleetStats`, `useLineIndex`) reads
+    `snapshotQueryOptions` through its own module-level `select`.
+11. **The fixture has 254 vehicles on 19 lines plus 40 with no line** (the task said about 300 on ≥ 12
+    lines); it is real rows from the 16:24Z snapshot, cut with `jq` (`hooks/testdata/snapshot-20261012.json`,
+    44 KB).
+12. **Extra files:** `hooks/map-padding.ts`, `media-query.ts`, `use-is-desktop.ts`, `use-reduced-motion.ts`,
+    `heading.ts`, `letreiro-text.ts`, `speed-bins.ts`, `dashboard-url.ts`, `components/basemap.ts`,
+    `components/tabela-view.tsx`; `vitest.config.mts` also resolves `@/` and includes
+    `components/**/*.test.ts` (the test that fails if `vehicle-style.ts` and `globals.css` drift apart).
+
+### Facts about the data this surfaced
+
+- **No `speed_kmh` is null in the recorded run** (0 of 1,099,188 rows). The "sem velocidade" branch (a
+  hollow ring, `sem velocidade: N`, outside the moving share) is real code the data never exercised, so
+  its unit tests use real rows with the speed removed, and say so.
+- **20 % of the newest minute has `line: null`** (524 of 2,627). They're a sentence at the end of the
+  Linhas list, not a line.
+- **`GARAGEM` (47) and `ESPECIAL` (23) are values of the provider's `line` field** and show up as the
+  busiest "lines" in Agora. The screen shows them as the data says; whether to treat them as lines is a
+  product call for later.
+- **A line is one mode** in the whole snapshot (checked by a test), and vehicle IDs are unique across
+  operators in it, so `?onibus=` takes the bare ID.
+- **`next dev`'s "N" badge** overlaps the legend at the bottom left on a desktop. It's dev-only; the
+  production build doesn't have it, and the screenshots come from the production build.
+
+### Commands
+
+```
+pnpm dlx shadcn@latest init -t next -b radix -p nova -y --no-monorepo --no-rtl
+pnpm dlx shadcn@latest add tabs toggle-group
+pnpm --dir apps/web build && pnpm --dir apps/web start     # then Playwright + axe on :3000
+make lint && make test && make web-build
+```

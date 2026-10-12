@@ -70,6 +70,8 @@ Rider utility is a solved, crowded space, which is one more reason to build some
 | Letreiro | LED amber, letreiro panels only | `#FFB341` on `#07161B` | the same: the panel stays dark |
 | Céu / Coral | bus / BRT marks | `#7FD4FF` / `#FF6B5A` | `#0A6FA8` / `#C2412F` |
 
+- **Final values:** the text colours above passed as written. The rest (panel edge, focus ring, the five
+  speed bins, status markers, the dark basemap tint) were set and measured in `TASK-dashboard.md` §6.
 - **Why this isn't a default look:** it's neither cream-and-serif nor black-with-one-neon. The
   base is the bay's blue-green, and the amber comes from an object every carioca sees every day.
 
