@@ -137,12 +137,37 @@ captured samples]`. Retention (§8) is provisional until then.
 The live service is switched off after a while, and the case study must still work with the
 backend off:
 
-1. Raw positions are on S3, compressed, kept forever (invariant 2).
+1. Raw positions are on S3, compressed, and kept forever: S3 is the working copy, and the
+   durable copy outlives the account (§7.1, invariant 2).
 2. A few chosen days are exported as static files on S3 + CloudFront. They're generated from
    the raw log, so the export is itself a projection.
 3. The site says plainly that it's showing a replay of a named date, never "live".
 4. The live backend and the replay share one view contract, so the web app doesn't care which
    one it's reading `[VERIFY: design in the replay task]`.
+
+### 7.1 Account lifetime (Free plan)
+
+The AWS account is on the Free plan (user, 2026-10-12). It **closes after 6 months (around
+2027-03-27) or when its credits run out, whichever comes first.** Its content is deleted 90
+days after that. "Kept forever" therefore means that the raw log survives the account, not
+that S3 does:
+
+- **The durable copy of the raw log is the user's machine.** S3 is the working copy.
+- **Before the account closes:** `aws s3 sync` the raw prefix to the Mac, verify the byte
+  counts and SHA-256 checksums against a manifest, and keep a second local copy (an external
+  drive). Then recreate the stack in a new Free-plan account and re-upload whatever the
+  replay needs. `[VERIFY: AWS's current Free-plan terms on opening a new account]`
+- **The credits are shared by three projects,** so they may run out before month 6. Rough
+  monthly figures: this project ~USD 12, renewable-pulse ~USD 12, Apuração ~USD 40 in
+  total. The account's Budgets alarm has to watch the total, not one project's share.
+  `[VERIFY: remaining credit in the Billing console]`
+- **The replay must survive a move between accounts.** A CloudFront `*.cloudfront.net` URL
+  changes with the account, so a portfolio link pointing at it breaks. Replay files are read
+  from one configurable base URL, and the public link goes through something that outlives
+  the account: the Next.js site's own domain, or the Vercel deploy. That's decided in the
+  replay task.
+- **Everything else is rebuildable** (invariant 2): database rows and aggregates are
+  recomputed from the raw log in the new account. They're never migrated by hand.
 
 ## 8. Retention (decided 2026-10-12)
 
@@ -150,7 +175,7 @@ Provisional numbers, to be re-checked once the source inventory measures the rea
 
 | Data | Where | Kept | Notes |
 |---|---|---|---|
-| Raw provider responses | S3, compressed | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back `[VERIFY: current S3 prices and IA's 30-day minimum and per-GB retrieval fee]` |
+| Raw provider responses | S3, compressed; durable copy on the user's machine (§7.1) | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back `[VERIFY: current S3 prices and IA's 30-day minimum and per-GB retrieval fee]` |
 | Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table |
 | Per line, 5-minute buckets | TimescaleDB continuous aggregate | **forever** | active vehicles, median and p90 delay, observed headway (the exact list is fixed in the phase 1 task) |
 | Per line, hourly and daily rollups | continuous aggregates | **forever** | |
@@ -173,7 +198,7 @@ verified.
 
 | # | Question | Answer | Status |
 |---|---|---|---|
-| 1 | AWS account | the same account as renewable-pulse and Apuração, `860897618882`. The three projects share its credits. One `t4g.small` uses 2 of the 5-vCPU Spot quota | **decided** (user). `[VERIFY: is the account still on the Free plan? A Free-plan account closes after 6 months, around 2027-03-27, and deletes its content 90 days later. That breaks "raw kept forever" and the replay site unless it's upgraded to Paid first]` |
+| 1 | AWS account | the shared Free-plan account `860897618882` (also renewable-pulse and Apuração). Before it closes, the raw log is downloaded to the Mac and the project moves to a new Free-plan account (§7.1) | **decided** (user, 2026-10-12) |
 | 2 | Backend language | Go for the adapters, consumer and API | **decided** (user, 2026-10-12) |
 | 3 | Frontend framework | Next.js (the global `~/.claude/CLAUDE.md` rules apply) | **decided** (user) |
 | 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **decided** (user, 2026-10-12) |

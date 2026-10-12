@@ -64,7 +64,9 @@ Read in this order:
 - **A short live run, then replay.**
   - The live service is switched off after a while, so the case study must still work with
     the backend off.
-  - Raw positions go to S3 as compressed files and are kept forever.
+  - Raw positions go to S3 as compressed files and are kept forever. The AWS account is on
+    the Free plan, so before it closes the raw log is downloaded to the user's machine and the
+    stack moves to a new account (`docs/architecture.md` §7.1).
   - A few chosen days are exported as a static replay on S3 + CloudFront, and the site says
     plainly that it's a replay.
 - **Storage discipline.**
@@ -89,11 +91,11 @@ tool's current docs before installing (§2.0).
 | Broker | Redpanda (Kafka API) on the box, as in renewable-pulse | planned |
 | Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
 | Store | Postgres + TimescaleDB + PostGIS, same box | planned |
-| Raw log | S3, compressed files, kept forever | planned |
+| Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
 | API | Serves precomputed views and live positions | planned; **Go** (decided) |
 | Web | **Next.js** + MapLibre GL + deck.gl; tiles from a Protomaps `.pmtiles` extract on S3 + CloudFront | planned (decided) |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
-| Hosting | AWS `us-east-1`, account `860897618882` (shared with renewable-pulse and Apuração): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned; account decided, plan type `[VERIFY]` |
+| Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
 | Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |
 
 ### How to write in this repo
