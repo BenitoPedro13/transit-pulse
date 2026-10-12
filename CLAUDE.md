@@ -28,8 +28,9 @@ app, local Redpanda + TimescaleDB/PostGIS and a real-infrastructure test harness
 (`docs/tasks/TASK-scaffold.md`, done). There is no adapter, consumer, API, schema or map yet.
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
 samples are in `docs/research/samples/`. Four questions it raised are open for the user
-(`docs/architecture.md` §10 #9–#12); the event schema and the first adapter wait on #9 and
-#10. Read in this order:
+(`docs/architecture.md` §10 #9–#12). #9 and #10 were answered on 2026-10-12 (supplier joins
+the identity; ITS API only), and `docs/tasks/TASK-its-adapter.md` plans the canonical event
+v1 and the first adapter. #11 and #12 are still open. Read in this order:
 
 1. `docs/research/README.md`: the verified source inventory, one row per operator, plus
    measured volumes. Its "Findings that contradict or change the plan" section comes first.

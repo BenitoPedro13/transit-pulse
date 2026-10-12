@@ -67,15 +67,17 @@ inventory has real samples.**
 | `event_time` | When the provider says the position was taken | ITS API: ISO 8601, real UTC. GTFS-RT: POSIX seconds. Legacy BRT: epoch ms, UTC. **Legacy SPPO: ISO with a `Z` that is false; it's America/Sao_Paulo (UTC−3)** |
 | `received_time` | When our adapter fetched it | ours, UTC |
 
-Identity and format are decided in §10 (#7): `(operator, vehicle, event_time)` as the primary
-key, and JSON on a versioned topic with a JSON Schema contract.
+Identity and format are decided in §10 (#7, #9): `(operator, feed, vehicle, event_time)` as
+the primary key, where `feed` is an opaque device-source tag (`its:<fornecedor>`), and JSON on
+a versioned topic (`positions.v1`) with a JSON Schema contract
+(`packages/contracts/position.v1.schema.json`, from `docs/tasks/TASK-its-adapter.md`).
 
 - **Speed and heading:** every live SMTR path carries them (km/h and degrees). GTFS-RT BRT
   sends some bearings above 360. Whether they join the canonical event is still open.
 - **Identity collides across suppliers (2026-10-12).** In the ITS API, two AVL suppliers
   (`conecta` and `zirix`) report the same SPPO `id_veiculo` from two different devices. 3,114
-  `(vehicle, datetime)` pairs exist in both, with different positions. See §10 #9; it's
-  for the user to decide.
+  `(vehicle, datetime)` pairs exist in both, with different positions. Resolved by §10 #9:
+  the supplier joins the identity as `feed`.
 
 ## 4. Sources and phases
 
@@ -243,7 +245,7 @@ verified.
 | 6 | Replay days | §9 | **decided** |
 | 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Vehicle IDs **are stable** across polls and across SMTR's paths, and a parked vehicle repeats its `event_time` in snapshot feeds (verified 2026-10-12). **But see #9:** two suppliers collide on the same key |
 | 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
-| 9 | Identity across suppliers | `conecta` and `zirix` both report the same SPPO bus (2,072 vehicles) from two devices with different positions, so `(operator, vehicle, event_time)` would drop real observations. Options: add the supplier to the identity, or pick one supplier per vehicle | **open**: the user decides (raised 2026-10-12) |
-| 10 | Which live path for phase 1 | (a) ITS API: every supplier and the whole fleet, per-minute immutable windows, 24 h backfill, ≈ 529 MB/day; (b) GTFS-RT: standard, ≈ 128 MB/day, but only trip-matched vehicles (≈ 46% of buses); (c) legacy JSON: undocumented, a false `Z` on SPPO times, conecta only. Recommendation: (a) as the source of truth, with (b) optionally recorded as a cross-check. All three are beta | **open**: the user decides (raised 2026-10-12) |
+| 9 | Identity across suppliers | `conecta` and `zirix` both report the same SPPO bus (2,072 vehicles) from two devices with different positions. **Answer: the supplier joins the identity** as an opaque `feed` tag (`its:conecta`, …): identity = `(operator, feed, vehicle, event_time)`. Both observations are kept; picking one fix per vehicle is a projection's job. Nothing downstream branches on `feed`'s value | **decided** (user, 2026-10-12); implemented by `docs/tasks/TASK-its-adapter.md` |
+| 10 | Which live path for phase 1 | (a) ITS API: every supplier and the whole fleet, per-minute immutable windows, 24 h backfill, ≈ 529 MB/day; (b) GTFS-RT: standard, ≈ 128 MB/day, but only trip-matched vehicles (≈ 46% of buses); (c) legacy JSON: undocumented, a false `Z` on SPPO times, conecta only. Recommendation: (a) as the source of truth, with (b) optionally recorded as a cross-check. All three are beta | **decided** (user, 2026-10-12): **(a) the ITS API only.** GTFS-RT isn't ingested in phase 1; it may be added later as a cross-check. Implemented by `docs/tasks/TASK-its-adapter.md` |
 | 11 | Phase 2 without official GTFS | no official GTFS exists for rail, metro, VLT or ferries (research §4–§7). Options: show them as `none` in the coverage panel only, or hand-build GTFS from the operators' published HTML timetables, labelled as derived by us | **open**: the user decides (raised 2026-10-12) |
 | 12 | Static GTFS freshness | the public SMTR feed hasn't changed since 2026-06-10, has `feed_end_date` 2026-12-31, and live `trip_id`s join only ≈44%. Shapes and `route_id`s still join ≈98–99%. Options: ask SMTR (`infra.smtr@prefeitura.rio`) for the current feed, or rely on `route_id`/`shape_id` only | **open** (raised 2026-10-12) |

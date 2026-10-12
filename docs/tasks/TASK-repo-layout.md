@@ -2,9 +2,8 @@
 
 **Status (2026-10-12): done.** L1–L6 pass: `go list` shows only the two `packages/*`; `make lint` 0 issues; `make test` ok, 0 skipped; `make web-build` ok; every tracked move is a rename. Git paired the two identical empty `.gitkeep` files crosswise (`schemas/.gitkeep → apps/web/hooks/.gitkeep`); both paths exist, so it is cosmetic.
 
-Originally Asked for by the user on 2026-10-12, after the scaffold
-(`docs/tasks/TASK-scaffold.md`) and before the first adapter, while there are only 4 Go
-packages and one Next.js app to move.
+Asked for by the user on 2026-10-12, after the scaffold (`docs/tasks/TASK-scaffold.md`) and
+before the first adapter, while there are only 2 Go packages and one Next.js app to move.
 
 ## 1. Current scenario
 

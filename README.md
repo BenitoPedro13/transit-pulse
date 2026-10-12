@@ -15,8 +15,8 @@ It's also a portfolio case study in distributed, data-heavy real-time systems:
 Redpanda + TimescaleDB/PostGIS and a test harness that runs against real infrastructure. The
 source inventory is verified (2026-10-12): Rio's city buses and BRT are live; rail, metro,
 tram, ferries, intercity and Niterói buses have no public machine-readable data. The event
-schema and the first adapter wait on two open questions
-([`docs/architecture.md`](docs/architecture.md) §10 #9 and #10).
+schema and the first adapter (ITS API) are planned in
+[`docs/tasks/TASK-its-adapter.md`](docs/tasks/TASK-its-adapter.md).
 
 ## Setup
 
