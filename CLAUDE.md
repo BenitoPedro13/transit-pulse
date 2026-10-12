@@ -123,7 +123,7 @@ tool's current docs before installing (§2.0).
    - Replaying real recorded positions is fine. Fabricating one is not.
 2. **Raw positions are immutable.**
    - Every provider response we fetch is stored as received, compressed, in S3, and kept
-     forever.
+     forever, including across the move between AWS accounts (`docs/architecture.md` §7.1).
    - Everything else is a projection that can be rebuilt from that raw log: database rows,
      aggregates, delays by line, the replay export. A projection is never the source of
      truth.
