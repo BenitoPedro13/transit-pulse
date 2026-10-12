@@ -1,7 +1,7 @@
 # TASK: The first screen: a Rio map with buses and BRT, a table, and a read-only API
 
-**Status (2026-10-12): planned, not started.** Written for Sonnet sessions to execute. It has
-two parts:
+**Status (2026-10-12): Part A done (§7); Part B waiting on the consumer task.** Written for
+Sonnet sessions to execute. It has two parts:
 
 - **Part A (§2.2, web only)** has no dependency and **can run in parallel** with
   `docs/tasks/TASK-positions-consumer.md`. It puts the Rio basemap on screen.
@@ -330,7 +330,82 @@ Timings are medians of 3 runs.
 
 ### Part A
 
-_Not started._
+Done 2026-10-12. Verified in headless system Chrome (Playwright, SwiftShader software GL) driven
+from a scratch project outside the repo, with `axe-core` injected. The Claude-in-Chrome
+extension wasn't connected.
+
+**Tiles (A1)**
+
+- Source: Protomaps daily build `https://build.protomaps.com/20261012.pmtiles` (138.8 GB, style
+  version 4.15.2, from the index at `https://build-metadata.protomaps.dev/builds.json`).
+  `make tiles` takes the newest key in that index, because the bucket keeps about a week of
+  builds. Override with `make tiles TILES_BUILD=<key>`.
+- CLI: `pmtiles` 1.31.2, installed with `brew install pmtiles` (the released binary, bottled).
+  Command: `pmtiles extract <build> apps/web/public/tiles/rio.pmtiles --bbox=… --maxzoom=15`.
+  Flags checked against [docs.protomaps.com/pmtiles/cli](https://docs.protomaps.com/pmtiles/cli).
+- Output: `apps/web/public/tiles/rio.pmtiles`, **44,628,646 bytes (≈ 45 MB)**, 7,688 tile entries,
+  54 requests, 47 MB transferred. Two runs took 17.1 s and 18.0 s (not three: the target isn't
+  a performance claim). Git-ignored.
+- **Final bbox: `-43.80,-23.10,-42.70,-22.45`, unchanged.** Checked against Nominatim
+  bounding boxes (OSM): the city of Rio (lon -43.796..-43.099, lat -23.083..-22.746), Niterói,
+  São Gonçalo and the Baixada municipalities (Nova Iguaçu, Duque de Caxias, São João de Meriti,
+  Belford Roxo, Nilópolis, Mesquita, Queimados, Japeri, Magé, Seropédica) fall inside it.
+  Magé (north to -22.484) and Duque de Caxias (-22.476) clear the -22.45 edge. **Itaguaí** (west
+  to -43.94) is clipped at -43.80; it's not in the Rio-first scope.
+
+**Range requests (A1):** `curl -s -o /dev/null -w '%{http_code}' -r 0-99 …/tiles/rio.pmtiles`
+prints `206` (3 of 3) under `next dev` and (3 of 3) under `next start`. The browser's own range
+requests returned `206` as well. The Go fallback isn't needed.
+
+**Libraries (checked against current docs)**
+
+| Package | Version | Notes |
+|---|---|---|
+| `maplibre-gl` | 6.14.0 | v6 is ESM-only and needs `setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url))` with Turbopack ([MapLibre docs](https://maplibre.org/maplibre-gl-js/docs/)) |
+| `react-map-gl` | 8.1.3 | `import { Map } from "react-map-gl/maplibre"` (a wrapper over `@vis.gl/react-maplibre`, which imports `maplibre-gl` itself) |
+| `pmtiles` | 4.5.0 | `addProtocol("pmtiles", new Protocol().tile)` ([docs](https://docs.protomaps.com/pmtiles/maplibre)) |
+| `@protomaps/basemaps` | 5.7.2 | `layers("protomaps", namedFlavor("light"), { lang: "pt" })` ([docs](https://docs.protomaps.com/basemaps/maplibre)) |
+
+- Glyphs: `https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf`. Sprite:
+  `https://protomaps.github.io/basemaps-assets/sprites/v4/light`. Both hosted by Protomaps for now.
+- **Two files, not one:** `components/live-map.tsx` is the `'use client'` wrapper (region, label,
+  focus ring) and does `next/dynamic(…, { ssr: false })` (the Next 16 lazy-loading guide says
+  `ssr: false` must live in a Client Component). `components/live-map-canvas.tsx` holds the
+  MapLibre code, so it only ever runs in the browser.
+- The pmtiles protocol is registered once at module scope of the canvas file, not in an Effect.
+  The module is loaded only by the dynamic import, and registering before the map exists
+  avoids a race with the first tile request. The style's tile URL is absolute
+  (`window.location.origin`), because the protocol handler fetches outside the page's base URL.
+- Page: Server Component with the header, the status line "Sem dados de veículos ainda", the map
+  and an empty table section. `lang="pt-BR"` and a real title are set. The five starter SVGs
+  are removed.
+
+**Acceptance**
+
+- **A1** ✅ size and bbox above; `206` under `next start` and `next dev`.
+- **A2** ✅ The basemap renders with Portuguese labels (for example "Baía de Guanabara",
+  "Região Oceânica") in `next dev` and in `next build && next start`. Console: no errors
+  (Chrome's software-GL "GPU stall" performance notices only). `pnpm --dir apps/web lint` and
+  `make web-build` pass.
+  - **Note:** a screenshot taken before MapLibre finishes drawing shows only the grey
+    background. With software GL it needs about 15 s.
+- **A3** ✅
+  - axe-core (4.x, the `axe-core` npm package injected by Playwright; tags `wcag2a`, `wcag2aa`,
+    `wcag21aa`, `wcag22aa`): **0 violations** in both builds.
+  - Tab order: map canvas → zoom in → zoom out → attribution button → attribution links. The
+    canvas shows a 2 px solid focus outline.
+  - Keyboard: with the canvas focused, ArrowRight moves the centre from -43.3500 to -43.2813.
+    With normal motion the move animates (30 ms later it hasn't moved; after 1.2 s it has).
+    With `reducedMotion: "reduce"` the same key press jumps at once (30 ms later it's already at
+    -43.2813). MapLibre honours the setting itself, and we add no animated camera calls.
+
+**Not done / caveats**
+
+- `make test` is red on this tree, and `make lint` was red once and clean once, all in the
+  consumer task's **uncommitted, in-progress `packages/store`** (`TestStore` idempotency
+  assertions; a `staticcheck` QF1001 at `store_test.go:285`). Part A touches no Go. Every other
+  package passes (`go test` on all packages except `packages/store`). Web lint is clean.
+- No screenshot is saved in the repo (tiles and vehicles come in Part B's screenshot, B6).
 
 ### Part B
 

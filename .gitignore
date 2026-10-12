@@ -26,3 +26,6 @@ docs/research/samples/**/*.large.*
 
 # adapter-its raw log and state (local runs)
 var/
+
+# Rio basemap extract: `make tiles` regenerates it
+apps/web/public/tiles/
