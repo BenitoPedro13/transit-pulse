@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { VehicleRow } from "@/hooks/use-latest-vehicles";
 
 // The map touches `window` and WebGL, so it never renders on the server.
 const LiveMapCanvas = dynamic(() => import("./live-map-canvas"), {
@@ -10,14 +11,14 @@ const LiveMapCanvas = dynamic(() => import("./live-map-canvas"), {
   ),
 });
 
-export default function LiveMap() {
+export default function LiveMap({ vehicles }: { vehicles: VehicleRow[] }) {
   return (
     <div
       role="region"
       aria-label="Mapa de veículos"
       className="h-[60vh] min-h-80 w-full overflow-hidden rounded border border-zinc-300 bg-zinc-100 [&_.maplibregl-canvas:focus-visible]:outline-2 [&_.maplibregl-canvas:focus-visible]:outline-offset-[-2px] [&_.maplibregl-canvas:focus-visible]:outline-blue-700 [&_.maplibregl-canvas-container:focus-visible]:outline-2 [&_.maplibregl-canvas-container:focus-visible]:outline-offset-[-2px] [&_.maplibregl-canvas-container:focus-visible]:outline-blue-700"
     >
-      <LiveMapCanvas />
+      <LiveMapCanvas vehicles={vehicles} />
     </div>
   );
 }

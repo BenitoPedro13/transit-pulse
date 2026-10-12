@@ -143,6 +143,17 @@ live sources on 2026-10-12.
   rebuilt from the raw log equals the one the consumer built live (see §10 #7 and
   `docs/tasks/TASK-positions-consumer.md`).
 
+- **The API serves a snapshot from memory (built 2026-10-12).** `apps/api` never queries on a
+  request. Every 10 s a refresher runs a tiny probe on `feed_status` (the newest row of each feed);
+  only when the result differs from the one the snapshot was built from does it run the one snapshot
+  query (the newest fix per `(operator, vehicle)` in the 300 s before the end of the newest minute
+  with positions), encode it as JSON and gzip, and swap it in atomically. A viewer spike therefore
+  costs no queries, and a stopped database leaves the last snapshot being served (`/healthz` says
+  `refresh_ok: false`). `as_of_minute` is the newest minute with positions, so a newer `failed` or
+  `gap` minute appears in `coverage` and never as zero vehicles (invariant 6). Measured in
+  `docs/tasks/TASK-live-map.md` §7: 2,627 vehicles, 48.6 KB gzipped, p95 ≤ 1 ms. The one cost to watch
+  is the snapshot query, a sequential scan of the newest chunk because `positions` has no time index.
+
 ## 6. Hosting and cost sketch
 
 This copies `renewable-pulse/docs/tasks/TASK-aws-infra.md`. Prices below are that document's
@@ -274,7 +285,7 @@ verified.
 | 5 | Retention windows | §8 | **decided** |
 | 6 | Replay days | §9 | **decided** |
 | 7 | Event identity and schema format | identity = `(operator, feed, vehicle, event_time)` (§10 #9), enforced as the primary key. **A repeat keeps the copy from the earliest raw minute** (`ON CONFLICT … DO UPDATE … WHERE excluded.raw_minute < positions.raw_minute`), not `DO NOTHING`: the provider re-serves a fix in a later minute for 4.6% of records, and the adapter publishes the newest minute first after a restart, so `DO NOTHING` would keep whichever copy arrived first and a live table would differ from a rebuilt one (11 of the 52,854 repeats in the 118-minute run even differ in position). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Vehicle IDs **are stable** across polls and across SMTR's paths, and a parked vehicle repeats its `event_time` in snapshot feeds (verified 2026-10-12). **But see #9:** two suppliers collide on the same key |
-| 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
+| 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too. Verified 2026-10-12 (`docs/tasks/TASK-live-map.md` §7): `make tiles` extracts the Rio bbox from the newest Protomaps daily build (≈ 45 MB, `pmtiles` CLI 1.31.2) and Next serves it with `Range` (206). Glyphs and sprites come from Protomaps' hosted `basemaps-assets` for now; self-hosting them is left to the AWS task |
 | 9 | Identity across suppliers | `conecta` and `zirix` both report the same SPPO bus (2,072 vehicles) from two devices with different positions. **Answer: the supplier joins the identity** as an opaque `feed` tag (`its:conecta`, …): identity = `(operator, feed, vehicle, event_time)`. Both observations are kept; picking one fix per vehicle is a projection's job. Nothing downstream branches on `feed`'s value | **decided** (user, 2026-10-12); implemented by `docs/tasks/TASK-its-adapter.md` |
 | 10 | Which live path for phase 1 | (a) ITS API: every supplier and the whole fleet, per-minute immutable windows, 24 h backfill, ≈ 529 MB/day; (b) GTFS-RT: standard, ≈ 128 MB/day, but only trip-matched vehicles (≈ 46% of buses); (c) legacy JSON: undocumented, a false `Z` on SPPO times, conecta only. Recommendation: (a) as the source of truth, with (b) optionally recorded as a cross-check. All three are beta | **decided** (user, 2026-10-12): **(a) the ITS API only.** GTFS-RT isn't ingested in phase 1; it may be added later as a cross-check. Implemented by `docs/tasks/TASK-its-adapter.md` |
 | 11 | Phase 2 without official GTFS | no official GTFS exists for rail, metro, VLT or ferries (research §4–§7). Options: show them as `none` in the coverage panel only, or hand-build GTFS from the operators' published HTML timetables, labelled as derived by us | **open**: the user decides (raised 2026-10-12) |

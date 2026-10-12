@@ -23,9 +23,9 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): the ITS adapter, the positions consumer and the rebuild are built; no
-API or map yet.** The repo has a Go module, a Next.js app, local Redpanda + TimescaleDB/PostGIS
-and a real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
+**Status (2026-10-12): the ITS adapter, the positions consumer, the rebuild, the read-only API
+and the first screen (map, table, status) are built.** The repo has a Go module, a Next.js app,
+local Redpanda + TimescaleDB/PostGIS and a real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
 samples are in `docs/research/samples/`. `docs/tasks/TASK-its-adapter.md` is done: the canonical
 event v1 and `feed-status.v1` (JSON Schema in `packages/contracts`), the raw log
@@ -33,7 +33,10 @@ event v1 and `feed-status.v1` (JSON Schema in `packages/contracts`), the raw log
 Its measurements are in that document's §7. `docs/tasks/TASK-positions-consumer.md` is done:
 `packages/its` (the mapping, moved out of the adapter), `packages/store` (the `positions`
 hypertable, `feed_status`, and the two idempotent, order-independent writes), `apps/consumer`
-(topics → database) and `apps/rebuild` (raw log → database), with measurements in its §7. Of the four questions the inventory raised
+(topics → database) and `apps/rebuild` (raw log → database), with measurements in its §7. `docs/tasks/TASK-live-map.md` is
+done: `apps/api` (a snapshot refreshed from `feed_status` every 10 s and served from memory, so a
+request never queries), the Rio basemap (`make tiles`), vehicles on MapLibre + deck.gl, a TanStack
+Table list, and a status strip that tells live, stale and failed apart; measurements in its §7. Of the four questions the inventory raised
 (`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
 the identity; ITS API only). #11 and #12 are still open. Read in this order:
 
@@ -104,8 +107,8 @@ upgrading (§2.0).
 | Stream processing | Plain consumer group + TimescaleDB continuous aggregates | consumer group (`apps/consumer`) **built**; continuous aggregates planned (decided) |
 | Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0; schema migrations with goose v3.29.0 (embedded SQL in `packages/store/migrations`, Postgres session lock) | **built**: `positions` (hypertable, 1-day chunks, 3-day retention, no compression) and `feed_status` |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
-| API | Serves precomputed views and live positions | planned; **Go** (decided) |
-| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL + deck.gl and Protomaps `.pmtiles` tiles on S3 + CloudFront come with the map task | Next.js + TanStack Query **scaffolded** (`apps/web/`); map planned (decided) |
+| API | Serves precomputed views and live positions. `apps/api` (**Go**): `GET /v1/vehicles/latest` and `/healthz` from an in-memory, pre-gzipped snapshot; pgx v5, read-only | **built** (`GET /v1/vehicles/latest`); other views planned |
+| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL 6.14.0 (ESM-only, worker URL set under Turbopack) + react-map-gl 8.1.3 + deck.gl 9.4.0 (`@deck.gl/maplibre`, overlaid mode); pmtiles 4.5.0 + `@protomaps/basemaps` 5.7.2 on a Protomaps Rio `.pmtiles` extract (`make tiles`, local; S3 + CloudFront with the AWS task); TanStack Table **v9** (`@tanstack/react-table` 9.2.8); Vitest 5.0 for the pure rules (node environment) | **built** (`apps/web/`): map with vehicles, table, status strip |
 | Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`packages/testharness`); real captures load through `packages/samples` | **scaffolded** |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
 | Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
@@ -236,15 +239,18 @@ transit-pulse/
 ├── .golangci.yml                # golangci-lint v2 config, default linters
 ├── Makefile                     # the only task runner
 ├── compose.yaml                 # local infra: redpanda + timescaledb
-├── .env.example                 # every variable the scaffold and the adapter read
+├── .env.example                 # every variable the scaffold, the adapter, the consumer and the API read
 ├── var/                         # git-ignored: local raw log (var/raw) and adapter state
 ├── apps/
 │   ├── adapter-its/             # ITS API adapter: raw log first, then positions.v1 + feed-status.v1
 │   ├── consumer/                # positions.v1 + feed-status.v1 -> TimescaleDB, one transaction per batch
 │   ├── rebuild/                 # raw log -> TimescaleDB for a minute range (the same writes as the consumer)
+│   ├── api/                     # read-only API: feed_status probe every 10 s -> in-memory snapshot (JSON + gzip)
 │   └── web/                     # create-next-app output + TanStack Query provider
-│       ├── app/                 # layout.tsx, providers.tsx, get-query-client.ts
-│       └── hooks/               # every custom hook lives here
+│       ├── app/                 # layout.tsx, page.tsx (Server Component), providers.tsx, get-query-client.ts
+│       ├── components/          # live-map (+ canvas), vehicle-view, vehicle-table, status-strip, legend
+│       ├── hooks/               # every custom hook lives here, with the rules and their Vitest tests
+│       └── public/tiles/        # git-ignored: rio.pmtiles from `make tiles`
 ├── packages/
 │   ├── testharness/             # testcontainers-go: real Redpanda and TimescaleDB for tests
 │   ├── samples/                 # loads docs/research/samples/<name> for parser tests
@@ -263,8 +269,8 @@ transit-pulse/
 
 Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
 `apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
-added only when a second JS package exists. Make targets: `up`, `down`, `test`,
-`lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`. No target runs `down -v`: deleting volumes is the
+added only when a second JS package exists. Make targets: `up`, `down`, `test`
+(Go, then the web's Vitest), `lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`, `api`, `tiles`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed

@@ -1,4 +1,4 @@
-.PHONY: up down test lint fmt web-dev web-build adapter-its consumer rebuild tiles
+.PHONY: up down test lint fmt web-dev web-build adapter-its consumer rebuild api tiles
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -12,9 +12,11 @@ up: .env
 down: .env
 	docker compose down
 
-# -count=1 so the integration test is never served from cache. Needs Docker running.
+# -count=1 so the integration test is never served from cache. Needs Docker running. The web
+# tests (Vitest, pure functions in apps/web/hooks) run after the Go ones.
 test:
 	go test -count=1 ./...
+	pnpm --dir apps/web test
 
 lint:
 	test -z "$$(gofmt -l $(GO_DIRS))"
@@ -46,6 +48,12 @@ consumer: .env
 rebuild: .env
 	test -n "$(FROM)" -a -n "$(TO)"
 	set -a && . ./.env && set +a && DATABASE_URL="$(if $(DB),$(DB),$$DATABASE_URL)" go run ./apps/rebuild -from $(FROM) -to $(TO)
+
+# Needs `make up` and a filled database (`make consumer` or `make rebuild`). Reads .env; stop it
+# with Ctrl-C. Listens on API_ADDR (default 127.0.0.1:8080); `make web-dev` reaches it through the
+# /api rewrite in apps/web/next.config.ts. Read-only: it never migrates or writes.
+api: .env
+	set -a && . ./.env && set +a && go run ./apps/api
 
 # Rio basemap extract (Protomaps daily build, ~45 MB) -> apps/web/public/tiles/rio.pmtiles.
 # Needs the pmtiles CLI (`brew install pmtiles`). Override the build: make tiles TILES_BUILD=20261012.pmtiles
