@@ -11,7 +11,7 @@ It's also a portfolio case study in distributed, data-heavy real-time systems:
 - rebuildable projections;
 - a static replay that keeps working after the live backend is switched off.
 
-**Status: scaffolded, no adapter yet.** The repo has a Go module, a Next.js app, local
+**Status: scaffolded, no adapter yet.** The repo has a Go module, a Next.js app (`apps/web`), local
 Redpanda + TimescaleDB/PostGIS and a test harness that runs against real infrastructure. The
 source inventory is verified (2026-10-12): Rio's city buses and BRT are live; rail, metro,
 tram, ferries, intercity and Niterói buses have no public machine-readable data. The event
@@ -34,7 +34,7 @@ Prerequisites (versions checked 2026-10-12):
   ```
 
   `~/.local/bin` has to be on your `PATH`.
-- **Node 24** (`web/.nvmrc`) and **pnpm 11** (pinned in `web/package.json`).
+- **Node 24** (`apps/web/.nvmrc`) and **pnpm 11** (pinned in `apps/web/package.json`).
 - `make` (the only task runner).
 
 ```bash
@@ -42,7 +42,7 @@ make up          # copies .env.example to .env if needed, starts Redpanda + Time
 make test        # Go tests, including the integration smoke test (needs Docker)
 make lint        # gofmt, go vet, golangci-lint, ESLint
 make web-dev     # Next.js dev server on http://localhost:3000
-pnpm --dir web install   # first time only, if web/node_modules is missing
+pnpm --dir apps/web install   # first time only, if apps/web/node_modules is missing
 ```
 
 | Target | What it does |
@@ -50,7 +50,7 @@ pnpm --dir web install   # first time only, if web/node_modules is missing
 | `make up` | `docker compose up -d --wait --wait-timeout 120` |
 | `make down` | `docker compose down`. Keeps the volumes: no target deletes them |
 | `make test` | `go test -count=1 ./...` (real Redpanda and TimescaleDB via testcontainers) |
-| `make lint` | gofmt check, `go vet`, `golangci-lint run`, `pnpm --dir web lint` |
+| `make lint` | gofmt check, `go vet`, `golangci-lint run`, `pnpm --dir apps/web lint` |
 | `make fmt` | `gofmt -w` on the Go packages |
 | `make web-dev` / `make web-build` | the Next.js dev server / production build |
 
@@ -64,3 +64,6 @@ prints the median idle memory of the two containers.
 - [`docs/architecture.md`](docs/architecture.md): design skeleton and open questions
 - [`docs/research/README.md`](docs/research/README.md): the verified source inventory and samples
 - [`docs/tasks/`](docs/tasks/): task documents
+
+Layout: deployables in `apps/` (`apps/web`, and each Go binary as `apps/<name>`), shared code
+in `packages/` (`testharness`, `samples`, `contracts`). One Go module at the root.

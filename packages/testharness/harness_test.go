@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/BenitoPedro13/transit-pulse/internal/testharness"
+	"github.com/BenitoPedro13/transit-pulse/packages/testharness"
 )
 
 const smokeTopic = "scaffold.smoke.v1"

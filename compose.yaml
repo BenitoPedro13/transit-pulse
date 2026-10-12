@@ -5,7 +5,7 @@ name: transit-pulse
 
 services:
   redpanda:
-    # Same tag as RedpandaImage in internal/testharness/harness.go: change both together.
+    # Same tag as RedpandaImage in packages/testharness/harness.go: change both together.
     image: docker.redpanda.com/redpandadata/redpanda:v26.2.4
     command:
       - redpanda
@@ -33,7 +33,7 @@ services:
       - transit-pulse
 
   timescaledb:
-    # Same tag as TimescaleImage in internal/testharness/harness.go: change both together.
+    # Same tag as TimescaleImage in packages/testharness/harness.go: change both together.
     image: timescale/timescaledb-ha:pg18.6-ts2.30.2
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set it in .env}

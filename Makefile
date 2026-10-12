@@ -20,13 +20,13 @@ lint:
 	test -z "$$(gofmt -l $(GO_DIRS))"
 	go vet ./...
 	golangci-lint run ./...
-	pnpm --dir web lint
+	pnpm --dir apps/web lint
 
 fmt:
 	gofmt -w $(GO_DIRS)
 
 web-dev:
-	pnpm --dir web dev
+	pnpm --dir apps/web dev
 
 web-build:
-	pnpm --dir web build
+	pnpm --dir apps/web build

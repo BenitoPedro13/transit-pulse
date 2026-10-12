@@ -93,14 +93,14 @@ upgrading (§2.0).
 
 | Layer | Choice | Status |
 |---|---|---|
-| Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `cmd/*` | planned; **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0) |
+| Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `apps/<name>` | planned; **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0) |
 | Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client | **scaffolded** (local compose, `make up`) |
 | Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
 | Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0 | **scaffolded** (local compose; no tables yet) |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
 | API | Serves precomputed views and live positions | planned; **Go** (decided) |
-| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL + deck.gl and Protomaps `.pmtiles` tiles on S3 + CloudFront come with the map task | Next.js + TanStack Query **scaffolded** (`web/`); map planned (decided) |
-| Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`internal/testharness`); real captures load through `internal/samples` | **scaffolded** |
+| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL + deck.gl and Protomaps `.pmtiles` tiles on S3 + CloudFront come with the map task | Next.js + TanStack Query **scaffolded** (`apps/web/`); map planned (decided) |
+| Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`packages/testharness`); real captures load through `packages/samples` | **scaffolded** |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
 | Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
 | Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |
@@ -220,7 +220,9 @@ When unsure, grep for the thing you changed across these files.
 
 ## 4. Project conventions
 
-A single repo, one Go module, one standalone pnpm project (`web/`). Today it holds:
+A single repo laid out as `apps/` (deployables) + `packages/` (shared code), with one Go
+module at the root and one standalone pnpm project (`apps/web/`). `apps/` and `packages/`
+are directories, not modules or workspaces (`docs/tasks/TASK-repo-layout.md`). Today it holds:
 
 ```
 transit-pulse/
@@ -229,22 +231,25 @@ transit-pulse/
 ├── Makefile                     # the only task runner
 ├── compose.yaml                 # local infra: redpanda + timescaledb
 ├── .env.example                 # every variable the scaffold reads
-├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
-├── internal/
+├── apps/
+│   └── web/                     # create-next-app output + TanStack Query provider
+│       ├── app/                 # layout.tsx, providers.tsx, get-query-client.ts
+│       └── hooks/               # every custom hook lives here
+├── packages/
 │   ├── testharness/             # testcontainers-go: real Redpanda and TimescaleDB for tests
-│   └── samples/                 # loads docs/research/samples/<name> for parser tests
-├── schemas/                     # JSON Schema contracts; empty until the canonical-event task
+│   ├── samples/                 # loads docs/research/samples/<name> for parser tests
+│   └── contracts/               # JSON Schema contracts; empty until the canonical-event task
+├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
 ├── scripts/idle-memory.sh       # median-of-3 idle memory per container
-├── web/                         # create-next-app output + TanStack Query provider
-│   ├── app/                     # layout.tsx, providers.tsx, get-query-client.ts
-│   └── hooks/                   # every custom hook lives here
 └── docs/
     research/                    # source inventory + samples/ (real captured provider responses)
     tasks/                       # task documents (§1)
     architecture.md
 ```
 
-Each binary arrives with its task as `cmd/<name>/main.go`. Make targets: `up`, `down`, `test`,
+Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
+`apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
+added only when a second JS package exists. Make targets: `up`, `down`, `test`,
 `lint`, `fmt`, `web-dev`, `web-build`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 

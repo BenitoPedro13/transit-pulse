@@ -3,7 +3,7 @@ package samples_test
 import (
 	"testing"
 
-	"github.com/BenitoPedro13/transit-pulse/internal/samples"
+	"github.com/BenitoPedro13/transit-pulse/packages/samples"
 )
 
 func TestMustReadRealSamples(t *testing.T) {

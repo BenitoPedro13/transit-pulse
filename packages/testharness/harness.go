@@ -81,7 +81,7 @@ func StartTimescale(t testing.TB) (connString string) {
 }
 
 // initScript returns the path of infra/postgres/initdb/001-extensions.sql, found relative to
-// this file (internal/testharness) so it works from any test's working directory.
+// this file (packages/testharness) so it works from any test's working directory.
 func initScript() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "infra", "postgres", "initdb", "001-extensions.sql")

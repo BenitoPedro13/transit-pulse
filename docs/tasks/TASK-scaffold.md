@@ -1,5 +1,9 @@
 # TASK: Scaffold the repo — Go module, Next.js app, local infrastructure, test harness
 
+> **Paths moved (2026-10-12):** `web/` → `apps/web/`, `internal/*` → `packages/*`, `schemas/` →
+> `packages/contracts/`, and binaries go in `apps/<name>/`, not `cmd/<name>/`. See
+> `docs/tasks/TASK-repo-layout.md`. This document keeps the original paths as a record.
+
 **Status (2026-10-12): done.** A1–A13 pass; the measured numbers and every deviation are in
 §6. Written by the planner; implemented by a different model. Every command, path and number
 below is meant to be followed literally. If something here turns out to be wrong against the
