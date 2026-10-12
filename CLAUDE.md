@@ -23,18 +23,20 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): scaffolded, no adapter yet.** The repo has a Go module, a Next.js
-app, local Redpanda + TimescaleDB/PostGIS and a real-infrastructure test harness
-(`docs/tasks/TASK-scaffold.md`, done). There is no adapter, consumer, API, schema or map yet.
+**Status (2026-10-12): the ITS adapter is built; no consumer, API, schema in a database or
+map yet.** The repo has a Go module, a Next.js app, local Redpanda + TimescaleDB/PostGIS and a
+real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
-samples are in `docs/research/samples/`. Four questions it raised are open for the user
-(`docs/architecture.md` §10 #9–#12). #9 and #10 were answered on 2026-10-12 (supplier joins
-the identity; ITS API only), and `docs/tasks/TASK-its-adapter.md` plans the canonical event
-v1 and the first adapter. #11 and #12 are still open. Read in this order:
+samples are in `docs/research/samples/`. `docs/tasks/TASK-its-adapter.md` is done: the canonical
+event v1 and `feed-status.v1` (JSON Schema in `packages/contracts`), the raw log
+(`packages/raw`) and `apps/adapter-its`, which publishes `positions.v1` and `feed-status.v1`.
+Its measurements are in that document's §7. Of the four questions the inventory raised
+(`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
+the identity; ITS API only). #11 and #12 are still open. Read in this order:
 
 1. `docs/research/README.md`: the verified source inventory, one row per operator, plus
    measured volumes. Its "Findings that contradict or change the plan" section comes first.
-2. `docs/architecture.md`: decisions, the canonical-event draft, phases, hosting and cost,
+2. `docs/architecture.md`: decisions, the canonical event v1, phases, hosting and cost,
    the replay-first ending, and open questions.
 
 ### Decisions already made (user, 2026-10-12). Don't reopen them
@@ -94,8 +96,8 @@ upgrading (§2.0).
 
 | Layer | Choice | Status |
 |---|---|---|
-| Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `apps/<name>` | planned; **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0) |
-| Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client | **scaffolded** (local compose, `make up`) |
+| Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `apps/<name>` | **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0); the ITS adapter (`apps/adapter-its`, ITS API only) is **built**; other adapters planned |
+| Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client (+ kadm v1.19.0 for topic creation) | **scaffolded** (local compose, `make up`); used by the ITS adapter |
 | Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
 | Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0 | **scaffolded** (local compose; no tables yet) |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
@@ -231,15 +233,19 @@ transit-pulse/
 ├── .golangci.yml                # golangci-lint v2 config, default linters
 ├── Makefile                     # the only task runner
 ├── compose.yaml                 # local infra: redpanda + timescaledb
-├── .env.example                 # every variable the scaffold reads
+├── .env.example                 # every variable the scaffold and the adapter read
+├── var/                         # git-ignored: local raw log (var/raw) and adapter state
 ├── apps/
+│   ├── adapter-its/             # ITS API adapter: raw log first, then positions.v1 + feed-status.v1
 │   └── web/                     # create-next-app output + TanStack Query provider
 │       ├── app/                 # layout.tsx, providers.tsx, get-query-client.ts
 │       └── hooks/               # every custom hook lives here
 ├── packages/
 │   ├── testharness/             # testcontainers-go: real Redpanda and TimescaleDB for tests
 │   ├── samples/                 # loads docs/research/samples/<name> for parser tests
-│   └── contracts/               # JSON Schema contracts; empty until the canonical-event task
+│   ├── contracts/               # position.v1 and feed-status.v1 JSON Schema + a test validator
+│   ├── event/                   # Position and FeedStatus Go types; Key() and Identity()
+│   └── raw/                     # append-only raw log: hourly gzip files, byte-exact bodies
 ├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
 ├── scripts/idle-memory.sh       # median-of-3 idle memory per container
 └── docs/
@@ -251,7 +257,7 @@ transit-pulse/
 Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
 `apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
 added only when a second JS package exists. Make targets: `up`, `down`, `test`,
-`lint`, `fmt`, `web-dev`, `web-build`. No target runs `down -v`: deleting volumes is the
+`lint`, `fmt`, `web-dev`, `web-build`, `adapter-its`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed

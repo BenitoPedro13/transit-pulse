@@ -88,7 +88,7 @@ and are counted (§2.4.6). They're never clamped or corrected.
   - `func (p Position) Identity() string`, returning `Key() + "/" + event_time`.
 - `event_test.go` validates marshalled `Position`s against the schema file. Use
   `github.com/santhosh-tekuri/jsonschema/v6`
-  `[VERIFY: the current major version and API on pkg.go.dev]`. It's a test dependency only.
+  `[resolved, §7: v6.0.3 supports draft 2020-12]`. It's a test dependency only.
   If it's unmaintained or doesn't support draft 2020-12, pick another library and record
   why in §7.
 
@@ -205,7 +205,7 @@ failed" (invariant 6).
 
 - **franz-go** `kgo` (already in `go.mod`). The idempotent producer is on by default, with
   `acks=all` and zstd compression.
-  `[VERIFY: franz-go's current defaults on pkg.go.dev; set them explicitly either way]`.
+  `[resolved, §7: the default compression is snappy, not zstd, so zstd is set explicitly]`.
 - **Topics:** `positions.v1` and `feed-status.v1`.
   - Created at startup with `kadm` if missing: 6 partitions, replication factor 1.
   - `positions.v1` gets `retention.ms` = 24 h. `feed-status.v1` gets `cleanup.policy=compact`.
@@ -282,8 +282,7 @@ belongs to the AWS infra task: that's where a real bucket exists to test against
   - `smtr-its-YYYYMMDD-paged-p{0,1,2}.json`: one small, really paged minute, from
     `?minuto_utc=<M>&id_veiculo=<a maxtrack vehicle>&limit=5`. That vehicle reports ≈ every
     5 s, so ≈ 12 records over ≈ 3 pages, and the last page has `next_cursor: null`.
-    `[VERIFY: that id_veiculo filtering + limit=5 really paginates; if not, pick another
-    small filter and record it]`. This is the paging and "minute complete" fixture. No
+    `[resolved, §7: it paginates, 5 + 5 + 4 over 3 pages]`. This is the paging and "minute complete" fixture. No
     hand-built final page.
   - `smtr-its-YYYYMMDD-error-<status>.json`: one real 4xx body, e.g. from an invalid
     `minuto_utc` like `minuto_utc=not-a-time`. Record the status you actually get.
@@ -419,5 +418,152 @@ Each one is recorded in §7 with the numbers. Timings are medians of 3 runs.
 
 ## 7. Results
 
-*(Filled in by the executor: per-criterion numbers, resolved `[VERIFY]`s with their
-sources, deviations from this plan and why.)*
+**Status (2026-10-12): done.** All eleven criteria are met, with the deviations listed at the
+end. The live run was a single 60-minute run, not a median of 3 (see "Deviations").
+
+### Step 2: `ITS_MINUTE_LAG` (measured)
+
+30 consecutive minutes (14:47–15:16 UTC), 4 fetch times each (`M+90s`, `M+2m`, `M+3m`, `M+10m`
+as the reference; times from the start of `M`, and a minute closes at `M+60s`), 120 fetches,
+no errors. Identical to the `+10m` fetch (record count and SHA-256 of the sorted rows):
+`+90s` 30/30, `+2m` 30/30, `+3m` 30/30. The smallest offset tested, `+90s`, is 30 s after the
+minute closes. With the plan's 30 s margin that is 60 s, which is also the documented bound,
+so **`ITS_MINUTE_LAG` = `1m`** (default in `config.go`, and in `.env.example`). Table:
+`docs/research/README.md` §1.1. It was measured on one Monday late morning only.
+
+### Criteria
+
+| | Result |
+|---|---|
+| **E1** | Over the four `veiculos-*` samples, `Events` gives per supplier: 40 records, **40 events, 0 invalid, 0 unmapped, 0 dups** (derived with a script over the JSON, then written into `TestEventsOverTheRealSamples`). `A48011` has `event_time` `2026-10-12T13:37:43Z`, `operator` `rio-sppo`, `feed` `its:conecta`. Every `sonda` event has `mode` `brt` and `route_id` null. Also asserted: null `line`/`route_id`/`heading` counts per sample (zirix 5/40, maxtrack 5/5, sonda 0/40 and one null heading). The first-40 samples hold no duplicates or invalid rows, so those paths are tested on copies of a real record with one field changed (`TestDuplicatesInvalidAndUnmapped`, `TestDuplicatesAcrossPagesAreDroppedByMinuteEvents`) |
+| **E2** | Every event from E1 and every `feed-status` message produced in the Redpanda tests validates against its schema (`packages/contracts`). `TestGoTypesMatchSchemaFields` fails if a Go JSON field is missing from the schema or the reverse, and checks every property is `required`. The schema also rejects bad lat, mode, feed, vehicle, speed, heading and minute (`TestSchemaRejectsBadPositions`) |
+| **E3** | Each sample (and the real 422 body) is written as an envelope and read back with `bytes.Equal` and a matching `body_len`. Invalid UTF-8, CRLF, a body containing the header separator and a 200 KB body also survive. A file cut inside its last member at five different points returns the earlier envelopes and `ErrTruncated`. Damage in the middle gives `ErrCorrupt` and the file is not touched |
+| **E4** | `httptest` serving the captured `paged-p{0,1,2}`: **3 requests** (= the captured pages), each cursor equals the previous `next_cursor`, the query is exactly `minuto_utc`, `limit=5000` and `cursor`, the minute is complete. A new adapter over the same `RAW_DIR` makes **0 requests** |
+| **E5** | Same envelope processed twice gives byte-identical events (`TestEventsIsDeterministic`). Against real Redpanda (testcontainers): 14 events published, 14 distinct identities, 4 feed-status messages. Restart with the checkpoint intact republishes nothing. Restart with the checkpoint **deleted** republishes from the raw log with **0 provider requests**: 28 records, still **14 distinct identities**, and the checkpoint is rewritten |
+| **E6** | 503 then success: 4 requests, page 0 has **2 envelopes** (503, then 200), the minute is complete, and `feed-status` is `ok` on the real broker. The captured 422: **1 request, no retry**, the body stored as received, the minute missing, a `failed` status for **each of the 4 mapped feeds** on the real broker, none sent twice. A reset mid-body (promised 100,000 bytes, sent a few) is stored with its partial body and an error, then retried. Also tested: a 200 with an HTML body is retried; 5 attempts then give up (429 with `Retry-After: 0`); a rejected minute waits 5 minutes and a failed one 1 minute; the limiter spaces retries too |
+| **E7** | One run, **60 minutes** (15:26:44–16:26:46 UTC), against the real API and the compose Redpanda. See below |
+| **E8** | Adapter stopped 15:51:47, restarted 15:56:49 (5 min). See below |
+| **E9** | Redpanda stopped 16:16:44–16:19:45 (3 min). See below |
+| **E10** | `make lint`: **0 issues**. `make test`: exits 0, **0 skipped**, 67+ passing tests. Runtime of 3 runs: 16.70 s, 10.52 s, 17.25 s, **median 16.70 s** |
+| **E11** | Docs in §4 updated (below). `grep -n "\[VERIFY" docs/tasks/TASK-its-adapter.md` lists only the word `[VERIFY]` in this document's own rules and results (§0, §4, §5 E11 and §7) and one real item: the MinIO/LocalStack licensing note in §2.7, **deferred to the AWS infra task**, which will test against a real S3 bucket instead |
+
+### E7: 60-minute live run
+
+- **Complete:** the run covers 118 consecutive minutes (14:27–16:24; the first 59 were the
+  start-up backfill of the 1 h window and the last 59 were live). **118/118 are complete in
+  the raw log and published.** Minute 15:25, fetched by the backfill, plus the 59 live minutes
+  (15:26–16:24) make **60 consecutive minutes, 60/60**. No attempt failed: 303 requests, all
+  HTTP 200, so no `failed` message was needed.
+- **Rate:** the spacing of request starts (taken from `fetched_at − duration_ms`, accurate to
+  about 1 ms) has a minimum of **0.992 s** and a median of 1.027 s, and no 0.99 s window held
+  more than 1 request. That holds through the backfills too. Overall 0.085 requests/s.
+- **Requests per minute:** median **3** (57 live minutes took 3 and 2 took 2; limit 4).
+- **Volume (59 live minutes, medians):** 10,431 records/min, 10,414 events/min (about 174
+  events/s), **367.4 KiB gzip/min** in the raw log against research's 367 KB: **+0.1%**,
+  inside ±50%. **Topic bytes:** `positions.v1` is 43,044,212 bytes on disk (zstd) for 1,152,042
+  records in 118 minutes, so **364,781 B/min** (356 KiB) and 37.4 B/record;
+  `feed-status.v1` is 108,992 bytes. The raw log is 41 MB for the 118 minutes, and the complete
+  15:00 hour is 22.06 MB (367.7 KB/min).
+- **`lag_to_publish_ms`** (publish ack minus end of the minute), limit `ITS_MINUTE_LAG` + 30 s
+  = 90 s:
+  - the **51 undisturbed live minutes**: median 63.3 s, p95 about 64 s, max 64.8 s. **Met.**
+  - all 59 live minutes: p95 230.6 s, because 8 minutes were deliberately disturbed (5 by E8:
+    112, 188, 244, 299, 356 s; 3 by E9: 111, 171, 231 s). Those are the recovery times, not
+    steady state.
+- **Memory:** `ps` RSS at 10, 20 and 30 minutes: 12.4, 13.9, 15.3 MiB, **median 13.9 MiB**
+  (limit 100). The highest every-minute sample was 54.8 MiB, during the start-up backfill. Since
+  macOS `ps` can understate (memory compression), the peak was measured again with
+  `/usr/bin/time -l` over a 150 s backfill: **maximum resident set 61.3 MiB** (64,258,048 B),
+  peak footprint 52.4 MiB.
+
+### E8: restart and backfill
+
+- 5 minutes became due during the pause. **All 5 were fetched and published**, newest first
+  (live priority), then oldest first, then back to live.
+- **No minute has more than one complete page chain:** no page was fetched OK twice in the
+  whole raw log.
+- The checkpoint advanced past the gap and ended at `2026-10-12T16:24:00Z`.
+- Request spacing after the restart: minimum **0.992 s** over 104 requests.
+- On SIGINT the adapter stopped in 3 ms in the E8 stop, and in 0.13 s at the end of the run
+  (limit 10 s).
+
+### E9: broker down
+
+- Redpanda was down 16:16:44–16:19:45. The raw log kept capturing: **the 3 minutes that fell
+  due (16:15, 16:16, 16:17) were all fetched during the outage**, none missed.
+- The publish cycle logged connection-refused warnings, rate-limited to one per 30 s.
+- Three seconds after Redpanda was back, the checkpoint caught up and all 3 minutes were
+  published (lags 231, 171, 111 s). The next minute was back to 63 s.
+
+### Replay equals live, on real data
+
+After the run, every event was recomputed from the raw log with `MinuteEvents` (the same code
+a replay uses) and compared with `positions.v1`: **1,099,188 identities on each side, 0 missing
+from the topic and 0 extra.** (A temporary test did this and isn't committed.)
+
+### New facts about the provider
+
+All in `docs/research/README.md` §1.1:
+
+- **The provider repeats fixes across minutes.** The topic holds 1,152,042 records but
+  1,099,188 distinct identities. All 52,854 extras (4.6%) are the same fix in a *different*
+  minute's window (`sonda` 43,940, `zirix` 7,474, `maxtrack` 1,421, `conecta` 19), up to 70
+  minutes for one parked bus. There were **0 same-minute repeats**, so none came from a
+  re-publish. The consumer's `ON CONFLICT DO NOTHING` on `Identity()` is therefore required.
+- `maxtrack` device `A2-096` reports two positions for one `datetime`: 57 conflicting
+  duplicates in 118 minutes (the first is kept).
+- `sonda` `(0, 0)` fixes: 1,035 of 103,180 records, dropped as invalid.
+- `sonda` `direcao` is null on 19.8% and **above 360 (361–999) on 14.1%** of its records, so
+  `heading_deg` is null for about a third of BRT fixes. They're nulled and counted, never
+  corrected. Whether 906 means 186° is unverified.
+
+### Resolved `[VERIFY]`s
+
+- jsonschema: `github.com/santhosh-tekuri/jsonschema/v6` v6.0.3 supports draft 2020-12 and was
+  published 2026-06-28 (pkg.go.dev). Test dependency in practice: only test binaries import
+  `packages/contracts`.
+- franz-go v1.22.1 (`go doc`): the producer is idempotent with `acks=all` by default, but the
+  **default compression is snappy, not zstd**, so `ProducerBatchCompression(ZstdCompression())`
+  is set. `RecordDeliveryTimeout` is 30 s (the default is unlimited). `kadm` v1.19.0 creates
+  the topics.
+- `id_veiculo=<id>&limit=5` paginates: 5 + 5 + 4 over 3 pages.
+- The 4xx sample is a real **HTTP 422**.
+
+### Deviations from the plan, and why
+
+1. **E7 ran 60 minutes in total, with E8 and E9 inside it, as a single run.** The plan's
+   "medians of 3 runs" would have meant three hours of live traffic. The medians are over the
+   minutes of one run. Stopping at 60 minutes was agreed with the user during the run (my
+   driver had allowed 82).
+2. **The lag measurement used four offsets, not three** (`+2m` added), because the documented
+   60 s bound falls between `+90s` and `+3m`. Offsets are from the start of `M`.
+3. **The raw header has a `cursor` field** (the request's cursor), which the plan didn't list.
+   Chaining a page to the one before it needs it. Raw also has `Walk`, `Scan`, `Index` and
+   `Loc`, so a startup scan streams headers (an hour is about 400 MB decompressed) and each
+   page is read back by offset.
+4. **Files are not strictly append-only:** `Log.Scan(..., repair=true)` cuts off an incomplete
+   last member after a crash. Otherwise later appends land after the garbage and become
+   unreadable. It only cuts a provably truncated tail, and a corrupt file is never touched.
+5. **`Events` maps one envelope, and `MinuteEvents` maps all pages of a minute.** Duplicates
+   can span pages, so the de-duplication that matters has to be per minute.
+6. **A missing `providers_status` key counts as `provider_not_ok`** with a null
+   `provider_status`. Zero vehicles with an `ok` status is `ok` with `records: 0`.
+7. **The checkpoint waits for a minute that is incomplete**, so after a crash everything after
+   it is re-published, including minutes that were already acked past a failed one. A minute
+   missing for 23 h would make a restart re-publish up to that much. Gap reports are capped at
+   7 days. The `failed` messages are queued in memory and not re-derived after a crash; the
+   next failed or successful attempt publishes its own message.
+8. **Retry timing:** a failed minute is retried after 60 s, and a minute that got a 4xx after
+   5 minutes (the plan said "the next cycle").
+9. **`make adapter-its` loads `.env`** with `set -a`, because `go run` doesn't.
+10. **The run left topics on the local Redpanda.** I deleted `positions.v1` and
+    `feed-status.v1` when I was done. They held only this run's data.
+
+### Not tested, and open
+
+- No real provider failure happened in the run (303 requests, all 200), so retries, `Retry-After`
+  and truncated bodies are tested only against `httptest` serving captured bytes.
+- Re-publish after a *partial* publish is tested through the deleted-checkpoint restart, not by
+  killing the process in the middle of a minute.
+- One 60-minute window. Day and night volumes, weekends and long outages aren't covered.
+- Where the user's decision is needed: whether `sonda` headings above 360 should stay null.

@@ -1,4 +1,4 @@
-.PHONY: up down test lint fmt web-dev web-build
+.PHONY: up down test lint fmt web-dev web-build adapter-its
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -30,3 +30,7 @@ web-dev:
 
 web-build:
 	pnpm --dir apps/web build
+
+# Needs `make up` (Redpanda). Reads .env; stop it with Ctrl-C (it exits 0 within 10 s).
+adapter-its: .env
+	set -a && . ./.env && set +a && go run ./apps/adapter-its

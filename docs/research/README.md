@@ -136,6 +136,65 @@ The documentation is readable at
 - **Volume per minute:** a median of 10,883 records over 3 pages, **6.64 MB raw, ~367 KB
   gzip-compressed** (summed page by page).
 - **Request budget:** 3 page requests per minute. That's 0.6% of the documented 5 requests/s.
+- **How long a minute takes to finish (measured 2026-10-12, 14:47–15:16 UTC, 30 consecutive
+  minutes, 120 fetches, no errors).** Each minute `M` was fetched in full (all pages,
+  `limit=5000`) at three times, and again at `M+10m` as the reference. "Identical" means the
+  same record count and the same SHA-256 over the sorted rows. Times are from the start of
+  `M`; a minute closes at `M+60s`.
+
+  | Fetched at | After the minute closed | Identical to the `+10m` fetch |
+  |---|---|---|
+  | `M+90s` | 30 s | **30 / 30** |
+  | `M+2m` | 1 min | **30 / 30** |
+  | `M+3m` | 2 min | **30 / 30** |
+
+  - So a minute is already complete 30 s after it closes, in this sample. That is the smallest
+    offset tested, and the documented "up to 60 s from reception to availability" is a floor
+    below which a lag isn't safe. **The adapter's `ITS_MINUTE_LAG` is therefore 60 s** (the
+    smallest identical offset, 30 s, plus a 30 s margin, which is also the documented bound).
+  - Over those 30 minutes: a median of **10,323 records/min** (min 9,997, max 10,792), 29
+    minutes in 3 pages and 1 in 2; one full-minute fetch took a median of 6.7 s (max 9.4 s) at
+    about 1.2 s per request, sequentially. `providers_status` was `ok` for all four suppliers in
+    all 120 fetches.
+  - The measurement needs re-running at other times of day: this one was a Monday, late
+    morning. The shorter-lag claim holds only for what was observed.
+- **Paging.** `id_veiculo=<id>&limit=5` paginates as documented: a vehicle with 14 records in
+  a minute came back as 5 + 5 + 4 over three pages, and the last page has `next_cursor: null`
+  (`smtr-its-20261012-paged-p{0,1,2}.json`). The cursor is opaque base64 and is passed back
+  unchanged (percent-encoded in the query string).
+- **`providers_status` depends on the filter.** With `fornecedor=<f>` it lists only that
+  supplier. With `id_veiculo=<id>` it still lists all four.
+- **Errors.** An invalid `minuto_utc` (`not-a-time`) returns **HTTP 422** with a FastAPI-style
+  body, `{"detail":[{"type":"datetime_from_date_parsing","loc":["query","minuto_utc"],"msg":…,
+  "input":"not-a-time","ctx":{…}}]}` (`smtr-its-20261012-error-422.json`, 220 bytes).
+- **Observed by the adapter over 118 minutes (2026-10-12, 14:27–16:24 UTC; 1,153,274 records,
+  every one kept byte for byte in the raw log):**
+  - **The same fix comes back in later minutes.** 1,099,188 distinct `(operator, feed,
+    vehicle, event_time)` identities in 1,152,042 published records. The 52,854 extras (4.6%)
+    are all the same fix served in a *different* minute's window: `sonda` 43,940, `zirix`
+    7,474, `maxtrack` 1,421, `conecta` 19. A parked BRT bus appeared in up to 70 minutes.
+    Inside one minute there were none after the adapter's de-duplication. §1.4 below said each
+    ping appears once per window for the window-based paths; that holds for `conecta` and
+    `maxtrack`, but `zirix` repeats fixes across minutes too.
+  - **One Maxtrack device reports two positions for one `datetime`.** The adapter counted 57
+    conflicting duplicates (same identity, different coordinates a few metres apart) in 118
+    minutes, all from vehicle `A2-096`. The first is kept. The other three suppliers had none.
+  - **Invalid fixes are all `sonda` `(0, 0)`:** 1,035 of 103,180 `sonda` records (1.0%), at most
+    18 per minute. Nothing else failed validation.
+  - **`sonda` headings are unusable for about a third of its records.** `direcao` is null on
+    20,419 of its 103,180 records (19.8%) and **above 360 on 14,560 (14.1%)**, with values from
+    361 to 999: the same defect as the GTFS-RT BRT bearings (§1.2). The other three suppliers
+    had no null and no out-of-range `direcao`, and no supplier had a negative or null
+    `velocidade`. The canonical event makes both cases `heading_deg: null`, counted and never
+    clamped or reinterpreted. Whether a value such as 906 means 186° is not verified `[VERIFY:
+    ask SMTR, or compare with the direction of travel between consecutive fixes]`.
+  - **Volume re-measured:** a median of 10,431 records/min over the 59 live minutes, and
+    **367.4 KiB gzip per minute** as stored in the raw log (§"Raw volume" estimated 367 KB:
+    +0.1%). That is 1,440 × 367.4 KiB ≈ 517 MiB/day. One full minute took a median of 2.1 s
+    of request time in 3 requests (the adapter spaces requests by 1 s).
+  - **Reliability:** 303 requests, all HTTP 200, no truncated body and no 5xx/429 in this run.
+    The retry paths are therefore tested only against synthetic server behaviour (httptest
+    serving captured bytes), not against a real provider failure.
 
 ### 1.2 GTFS-Realtime Vehicle Positions (beta)
 
@@ -238,7 +297,9 @@ captured from vendor URLs with credentials, not from these endpoints.
     0 moved without a new `dataHora`;
   - GTFS-RT BRT: 125 of 205 stationary pairs.
   - In the window-based paths (ITS, legacy SPPO) each ping appears once per window, apart
-    from the duplicates noted above.
+    from the duplicates noted above. **Correction (2026-10-12, adapter run, §1.1):** ITS
+    `zirix` and `sonda` re-serve the same fix in later minutes' windows, so identity must
+    de-duplicate across minutes too.
 - **But identity collides across suppliers** (finding 2 above): `conecta` and `zirix` report
   the same `id_veiculo` from two devices with different positions.
 
@@ -473,6 +534,8 @@ All captured 2026-10-12. Bodies are stored decoded (as JSON or protobuf). The gz
 | `brt-20261012-gps-legacy-snapshot.json` | `https://dados.mobilidade.rio/gps/brt` | 13:29:25 | full response; 863 vehicles, including stale ones |
 | `sppo-20261012-gps-legacy-window-trimmed.json` | `https://dados.mobilidade.rio/gps/sppo?dataInicial=2026-10-12T10:25:00&dataFinal=2026-10-12T10:26:00` | 13:28:59 | **trimmed to the first 400 of 3,729 records**; the full window was 1.27 MB |
 | `smtr-its-20261012-veiculos-{conecta,zirix,maxtrack,sonda}.json` | `https://its.mobilidade.rio/v1/geolocalizacao/veiculos?minuto_utc=2026-10-12T13:38:00Z&fornecedor=<f>&limit=40` | 13:40:07 | full responses, 40 records each, with a `next_cursor` |
+| `smtr-its-20261012-paged-p{0,1,2}.json` | `https://its.mobilidade.rio/v1/geolocalizacao/veiculos?minuto_utc=2026-10-12T14:36:00Z&id_veiculo=A2-005&limit=5` (then `&cursor=<next_cursor>`) | 14:46:46–48 | one really paged minute, byte-exact: 5 + 5 + 4 records, the last page with `next_cursor: null`. The paging and "minute complete" fixture |
+| `smtr-its-20261012-error-422.json` | `…/veiculos?minuto_utc=not-a-time&limit=5` | 14:46:48 | the real HTTP 422 body, 220 bytes |
 | `sppo-20261012-gtfsrt-vehicle-positions.pb` | `https://dados.mobilidade.rio/gtfs/realtime/onibus/vehicle-positions` | 13:34:58 | full response; covers SPPO and Sistema RIO |
 | `brt-20261012-gtfsrt-vehicle-positions.pb` | `https://dados.mobilidade.rio/gtfs/realtime/brt/vehicle-positions` | 13:35:01 | full response |
 | `smtr-20261012-gtfs-trimmed.zip` | trimmed from `https://dados.mobilidade.rio/gtfs/schedule` | 13:22:07 | 3 routes; the full feed's size and SHA-256 are in §2 |
@@ -482,7 +545,9 @@ repo):
 
 - every poll from the three ~10-minute runs: 20 legacy BRT, 10 legacy SPPO, 11 ITS minutes
   (33 pages) plus 3 rechecks and 3 history probes, and 21 + 21 GTFS-RT polls;
-- the full GTFS zip.
+- the full GTFS zip;
+- the lag measurement (120 fetches: counts and SHA-256 per minute and offset) and the adapter's
+  118-minute live run (its raw log, 1,153,274 records, and its log lines).
 
 The figures above were computed from them.
 

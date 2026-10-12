@@ -11,12 +11,15 @@ It's also a portfolio case study in distributed, data-heavy real-time systems:
 - rebuildable projections;
 - a static replay that keeps working after the live backend is switched off.
 
-**Status: scaffolded, no adapter yet.** The repo has a Go module, a Next.js app (`apps/web`), local
-Redpanda + TimescaleDB/PostGIS and a test harness that runs against real infrastructure. The
-source inventory is verified (2026-10-12): Rio's city buses and BRT are live; rail, metro,
-tram, ferries, intercity and Niterói buses have no public machine-readable data. The event
-schema and the first adapter (ITS API) are planned in
-[`docs/tasks/TASK-its-adapter.md`](docs/tasks/TASK-its-adapter.md).
+**Status: the first adapter (ITS API) is built.** The repo has a Go module, a Next.js app
+(`apps/web`), local Redpanda + TimescaleDB/PostGIS and a test harness that runs against real
+infrastructure. The source inventory is verified (2026-10-12): Rio's city buses and BRT are
+live; rail, metro, tram, ferries, intercity and Niterói buses have no public machine-readable
+data. `apps/adapter-its` polls the ITS API one UTC minute at a time, stores every response
+byte for byte in a local raw log, and publishes `positions.v1` and `feed-status.v1` to Redpanda
+(contracts in `packages/contracts`; plan and measurements in
+[`docs/tasks/TASK-its-adapter.md`](docs/tasks/TASK-its-adapter.md)). There is no consumer,
+database table, API or map yet, and the raw log isn't uploaded to S3 yet.
 
 ## Setup
 
@@ -42,6 +45,7 @@ make up          # copies .env.example to .env if needed, starts Redpanda + Time
 make test        # Go tests, including the integration smoke test (needs Docker)
 make lint        # gofmt, go vet, golangci-lint, ESLint
 make web-dev     # Next.js dev server on http://localhost:3000
+make adapter-its # polls the ITS API and publishes to Redpanda (needs `make up`; Ctrl-C stops it)
 pnpm --dir apps/web install   # first time only, if apps/web/node_modules is missing
 ```
 
@@ -53,6 +57,7 @@ pnpm --dir apps/web install   # first time only, if apps/web/node_modules is mis
 | `make lint` | gofmt check, `go vet`, `golangci-lint run`, `pnpm --dir apps/web lint` |
 | `make fmt` | `gofmt -w` on the Go packages |
 | `make web-dev` / `make web-build` | the Next.js dev server / production build |
+| `make adapter-its` | runs `apps/adapter-its` with `.env` loaded. Writes the raw log under `RAW_DIR` (`./var/raw`, git-ignored: **never delete it**, it's the source of truth), publishes to Redpanda, and logs one JSON line per published minute. Set `ITS_CONTACT` in your own `.env` |
 
 Local ports (all bound to `127.0.0.1`): Kafka `29092`, Redpanda Admin API `29644`, Postgres
 `5435`. They differ from renewable-pulse's so both stacks can run at once. `scripts/idle-memory.sh`

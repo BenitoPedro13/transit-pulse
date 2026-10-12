@@ -23,3 +23,6 @@ docs/research/samples/**/*.parquet
 docs/research/samples/**/*.pmtiles
 docs/research/samples/**/large/
 docs/research/samples/**/*.large.*
+
+# adapter-its raw log and state (local runs)
+var/

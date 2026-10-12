@@ -48,36 +48,57 @@ Within `live`, these are separate states, never collapsed into zero:
   parked for days, with timestamps up to years old, so this cut-off is required, not
   optional.
 
-## 3. The canonical event (draft)
+## 3. The canonical event (v1)
 
 Every adapter emits this shape. Nothing downstream of the adapter knows or branches on which
-provider an event came from. **This is a draft, and it gets finalised here once the source
-inventory has real samples.**
+provider an event came from. **v1 is final as of `docs/tasks/TASK-its-adapter.md`
+(2026-10-12).** The contract is `packages/contracts/position.v1.schema.json` (JSON Schema, draft
+2020-12, `additionalProperties: false`); the Go type is `packages/event` (`Position`), and a
+test fails if the two disagree.
 
 | Field | Meaning | Notes |
 |---|---|---|
-| `city` | Metro area, e.g. `rio` | |
-| `mode` | `bus` / `brt` / `rail` / `metro` / `tram` / `ferry` | enum to be finalised |
-| `operator` | Operator identifier | our own stable slug, not the provider's string |
+| `city` | Metro area | enum `rio` for now |
+| `mode` | `bus` / `brt` / `rail` / `metro` / `tram` / `ferry` | enum, final |
+| `operator` | Operator identifier | our own stable slug, not the provider's string. ITS: `rio-sppo`, `rio-sistema-rio`, `rio-brt` (the table is in `apps/adapter-its/mapping.go`) |
 | `authority` | `city` / `state` | who regulates it |
-| `source_kind` | `live` / `scheduled` | invariant 6 |
+| `source_kind` | `live` / `scheduled` | invariant 6; always `live` from the ITS adapter |
+| `feed` | Opaque device-source tag, `<system>:<supplier>` | ITS: `its:conecta`, `its:zirix`, `its:maxtrack`, `its:sonda`. Part of the identity (§10 #9). **Nothing downstream may branch on its value** |
 | `vehicle` | Vehicle identifier as the provider gives it | stable across polls and identical across all three SMTR paths (verified 2026-10-12). Formats differ by system: SPPO `A29001`, Sistema RIO `A2-003`, BRT `901008` |
-| `line` | Line/route identifier | SMTR gives both a GTFS `route_id` (≈99% join) and `servico` = GTFS `route_short_name` (85–100% join; misses are `ESPECIAL`, `LECD…`, `0`). `trip_id` joins only ≈44% for buses, because the public GTFS is stale (research §2) |
-| `lat`, `lon` | WGS84 position | decimal degrees, 6–7 decimals (GTFS-RT: float32) |
-| `event_time` | When the provider says the position was taken | ITS API: ISO 8601, real UTC. GTFS-RT: POSIX seconds. Legacy BRT: epoch ms, UTC. **Legacy SPPO: ISO with a `Z` that is false; it's America/Sao_Paulo (UTC−3)** |
-| `received_time` | When our adapter fetched it | ours, UTC |
+| `line` | Line identifier, or null | ITS `servico` (= GTFS `route_short_name`, 85–100% join; misses are `ESPECIAL`, `LECD…`, `0`). `""` becomes null; anything else, including `"0"`, is kept as given |
+| `route_id` | GTFS `route_id`, or null | ITS `route_id` (≈99% join where present). `""` becomes null. `trip_id` is not carried: it joins only ≈44% for buses because the public GTFS is stale (research §2) |
+| `lat`, `lon` | WGS84 position | decimal degrees, finite and in range. `(0, 0)` is invalid |
+| `event_time` | When the provider says the position was taken | RFC 3339 UTC. ITS API: `datetime`, real UTC. GTFS-RT: POSIX seconds. Legacy BRT: epoch ms, UTC. **Legacy SPPO: ISO with a `Z` that is false; it's America/Sao_Paulo (UTC−3)** |
+| `received_time` | When our adapter received it | RFC 3339 UTC; the raw envelope's `fetched_at`, so a replay reproduces it |
+| `speed_kmh` | Speed, or null | ITS `velocidade`. Null if absent or negative; never clamped |
+| `heading_deg` | Heading, or null | ITS `direcao`. Null if absent or outside [0, 360]; never clamped |
+| `raw_ref` | `{key, minute_utc, page}` | where the source bytes live: the raw-log object, the ITS minute and the page (invariant 2) |
 
-Identity and format are decided in §10 (#7, #9): `(operator, feed, vehicle, event_time)` as
-the primary key, where `feed` is an opaque device-source tag (`its:<fornecedor>`), and JSON on
-a versioned topic (`positions.v1`) with a JSON Schema contract
-(`packages/contracts/position.v1.schema.json`, from `docs/tasks/TASK-its-adapter.md`).
-
-- **Speed and heading:** every live SMTR path carries them (km/h and degrees). GTFS-RT BRT
-  sends some bearings above 360. Whether they join the canonical event is still open.
+- **Identity and format** are decided in §10 (#7, #9): `(operator, feed, vehicle, event_time)`.
+  `Position.Key()` (`operator/feed/vehicle`) is the Kafka message key, so all of one device's
+  fixes land in one partition in order; `Position.Identity()` adds `event_time`. JSON on a
+  versioned topic (`positions.v1`, 6 partitions, 24 h retention: the broker is a buffer, the
+  raw log is the record).
+- **`feed-status.v1`** (`packages/contracts/feed-status.v1.schema.json`) has one message per
+  `(feed, minute)` on a compacted topic, keyed `feed/minute_utc`, so a reader can tell "no
+  vehicles reported" from "fetch failed" (invariant 6). `status` is `ok`, `failed` (our fetch
+  failed after retries), `provider_not_ok` (`providers_status` for that supplier isn't `"ok"`)
+  or `gap` (a minute older than the backfill window that was never captured). The latest
+  message per key wins, so a minute that fails and is recovered later ends as `ok`.
+- **Delivery is at-least-once, and the provider repeats fixes.** After a crash an adapter
+  re-publishes from its checkpoint, so the topic can hold the same event twice. Separately, the
+  ITS API re-serves the same fix in later minutes: in a 118-minute run 4.6% of published
+  records (52,854 of 1,152,042) were repeats of an identity already published, none of them
+  from a re-publish (research §1.1). The consumer is idempotent on `Identity()`
+  (`ON CONFLICT DO NOTHING`), and that is required, not a safety net.
 - **Identity collides across suppliers (2026-10-12).** In the ITS API, two AVL suppliers
   (`conecta` and `zirix`) report the same SPPO `id_veiculo` from two different devices. 3,114
   `(vehicle, datetime)` pairs exist in both, with different positions. Resolved by §10 #9:
   the supplier joins the identity as `feed`.
+- **A fix is dropped as a duplicate only if it is exact** (same identity, same position, speed
+  and heading). Two different positions under one identity are counted as
+  `conflicting_duplicates` and the first is kept. See research §1.1 for the one device that does
+  this.
 
 ## 4. Sources and phases
 
