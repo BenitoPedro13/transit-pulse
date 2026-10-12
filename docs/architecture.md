@@ -129,7 +129,7 @@ TimescaleDB at about 240 MiB on the same 2 GiB box. PostGIS, a larger write rate
 tiles may not fit `[VERIFY: measure locally once phase 1 runs; the fallback is t4g.medium]`.
 
 **Raw volume is unknown** `[VERIFY: bytes per poll × polls per day per source, from the
-captured samples]`. Retention windows (§8) depend on it.
+captured samples]`. Retention (§8) is provisional until then.
 
 ## 7. The ending: replay first
 
@@ -143,15 +143,40 @@ backend off:
 4. The live backend and the replay share one view contract, so the web app doesn't care which
    one it's reading `[VERIFY: design in the replay task]`.
 
-## 8. Open questions
+## 8. Retention (decided 2026-10-12)
 
-| # | Question | Notes |
-|---|---|---|
-| 1 | Which AWS account, and how much credit does it have? | user mentioned over USD 130; reuse renewable-pulse's account `860897618882` or a new one? Free-plan limits apply if it's a Free-plan account |
-| 2 | Backend language | adapters, consumer, API. Apuração is TypeScript, renewable-pulse ingest is Go |
-| 3 | Frontend framework | the global `~/.claude/CLAUDE.md` rules apply if Next.js/React |
-| 4 | Stream processing | a plain consumer group vs. a stream processor, for delays by line and windowed aggregates |
-| 5 | Retention windows | full-detail positions in the database (days), aggregate granularity, and S3 storage class transitions |
-| 6 | Which days to record for the replay | e.g. a normal weekday, a weekend, a disruption or event day; must be chosen before the live run ends |
-| 7 | Canonical event identity and schema format | §3 |
-| 8 | Tile source | Protomaps `.pmtiles` on S3 vs. OpenFreeMap |
+Provisional numbers, to be re-checked once the source inventory measures the real raw volume.
+
+| Data | Where | Kept | Notes |
+|---|---|---|---|
+| Raw provider responses | S3, compressed | **forever** | S3 Standard for 30 days, then Standard-IA. No Glacier: replay exports read it back `[VERIFY: current S3 prices and IA's 30-day minimum and per-GB retrieval fee]` |
+| Full-detail positions | TimescaleDB hypertable, daily chunks | **3 days** | dropped by a retention policy. Replays are built from S3, never from this table |
+| Per line, 5-minute buckets | TimescaleDB continuous aggregate | **forever** | active vehicles, median and p90 delay, observed headway (the exact list is fixed in the phase 1 task) |
+| Per line, hourly and daily rollups | continuous aggregates | **forever** | |
+| Disk guard | CloudWatch | — | alarm at 70% of the data volume (renewable-pulse `abb09de`) |
+
+## 9. Replay days (decided 2026-10-12)
+
+The raw log records everything while the service is live, so these are the days the live run
+has to cover. They don't need to be captured specially.
+
+1. **An ordinary weekday:** a Tuesday to Thursday with no holiday and no major event.
+2. **A Sunday:** the weekend network, a different shape of day.
+3. **An event day:** Réveillon in Copacabana (31 Dec 2026 → 1 Jan 2027) if phase 1 is live by
+   then. Otherwise, the first heavy-rain or disruption day recorded.
+
+The live run is switched off only after all three are in the raw log and their exports are
+verified.
+
+## 10. Decisions and open questions
+
+| # | Question | Answer | Status |
+|---|---|---|---|
+| 1 | AWS account | the same account as renewable-pulse and Apuração, `860897618882`. The three projects share its credits. One `t4g.small` uses 2 of the 5-vCPU Spot quota | **decided** (user). `[VERIFY: is the account still on the Free plan? A Free-plan account closes after 6 months, around 2027-03-27, and deletes its content 90 days later. That breaks "raw kept forever" and the replay site unless it's upgraded to Paid first]` |
+| 2 | Backend language | Go for the adapters, consumer and API | **recommended**, awaiting the user |
+| 3 | Frontend framework | Next.js (the global `~/.claude/CLAUDE.md` rules apply) | **decided** (user) |
+| 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **recommended**, awaiting the user |
+| 5 | Retention windows | §8 | **decided** |
+| 6 | Replay days | §9 | **decided** |
+| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **recommended**, awaiting the user. Identity depends on vehicle IDs being stable across polls `[VERIFY in the source inventory]` |
+| 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **recommended**, awaiting the user. Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |

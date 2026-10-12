@@ -80,21 +80,21 @@ Read in this order:
 ### Stack
 
 Nothing is installed. Every row is **planned**, and the open rows are decisions still to be
-made (`docs/architecture.md` §8). Version numbers are a snapshot, not a pin: check each
+made (`docs/architecture.md` §10). Version numbers are a snapshot, not a pin: check each
 tool's current docs before installing (§2.0).
 
 | Layer | Choice | Status |
 |---|---|---|
-| Ingestion | One adapter per provider → canonical event | planned; **language open** |
+| Ingestion | One adapter per provider → canonical event | planned; Go recommended, awaiting the user |
 | Broker | Redpanda (Kafka API) on the box, as in renewable-pulse | planned |
-| Stream processing | Plain consumer group vs. a stream processor | **open** |
+| Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned; recommended, awaiting the user |
 | Store | Postgres + TimescaleDB + PostGIS, same box | planned |
 | Raw log | S3, compressed files, kept forever | planned |
-| API | Serves precomputed views and live positions | planned; **language open** |
-| Web | MapLibre GL + deck.gl + OSM tiles (Protomaps `.pmtiles` or OpenFreeMap) | planned; **framework open** |
+| API | Serves precomputed views and live positions | planned; Go recommended, awaiting the user |
+| Web | **Next.js** + MapLibre GL + deck.gl; tiles from a Protomaps `.pmtiles` extract on S3 + CloudFront | planned; Next.js decided, Protomaps recommended |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
-| Hosting | AWS `us-east-1`: one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned |
-| Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged, if the frontend ends up React/Next.js | — |
+| Hosting | AWS `us-east-1`, account `860897618882` (shared with renewable-pulse and Apuração): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned; account decided, plan type `[VERIFY]` |
+| Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |
 
 ### How to write in this repo
 
