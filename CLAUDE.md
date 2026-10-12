@@ -79,19 +79,19 @@ Read in this order:
 
 ### Stack
 
-Nothing is installed. Every row is **planned**, and the open rows are decisions still to be
-made (`docs/architecture.md` §10). Version numbers are a snapshot, not a pin: check each
+Nothing is installed. Every row is **planned**; the choices were decided on 2026-10-12
+(`docs/architecture.md` §10). Version numbers are a snapshot, not a pin: check each
 tool's current docs before installing (§2.0).
 
 | Layer | Choice | Status |
 |---|---|---|
-| Ingestion | One adapter per provider → canonical event | planned; Go recommended, awaiting the user |
+| Ingestion | One adapter per provider → canonical event | planned; **Go** (decided) |
 | Broker | Redpanda (Kafka API) on the box, as in renewable-pulse | planned |
-| Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned; recommended, awaiting the user |
+| Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
 | Store | Postgres + TimescaleDB + PostGIS, same box | planned |
 | Raw log | S3, compressed files, kept forever | planned |
-| API | Serves precomputed views and live positions | planned; Go recommended, awaiting the user |
-| Web | **Next.js** + MapLibre GL + deck.gl; tiles from a Protomaps `.pmtiles` extract on S3 + CloudFront | planned; Next.js decided, Protomaps recommended |
+| API | Serves precomputed views and live positions | planned; **Go** (decided) |
+| Web | **Next.js** + MapLibre GL + deck.gl; tiles from a Protomaps `.pmtiles` extract on S3 + CloudFront | planned (decided) |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
 | Hosting | AWS `us-east-1`, account `860897618882` (shared with renewable-pulse and Apuração): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned; account decided, plan type `[VERIFY]` |
 | Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |

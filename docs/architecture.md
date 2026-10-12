@@ -61,8 +61,9 @@ inventory has real samples.**
 | `event_time` | When the provider says the position was taken | `[VERIFY per source: time zone / epoch]` |
 | `received_time` | When our adapter fetched it | ours, UTC |
 
-Still open: the event identity used for idempotency (invariant 3), speed and heading if
-sources carry them, and the schema format (JSON Schema / Protobuf / Avro).
+Identity and format are decided in §10 (#7): `(operator, vehicle, event_time)` as the primary
+key, and JSON on a versioned topic with a JSON Schema contract. Still open: speed and heading,
+if sources carry them.
 
 ## 4. Sources and phases
 
@@ -173,10 +174,10 @@ verified.
 | # | Question | Answer | Status |
 |---|---|---|---|
 | 1 | AWS account | the same account as renewable-pulse and Apuração, `860897618882`. The three projects share its credits. One `t4g.small` uses 2 of the 5-vCPU Spot quota | **decided** (user). `[VERIFY: is the account still on the Free plan? A Free-plan account closes after 6 months, around 2027-03-27, and deletes its content 90 days later. That breaks "raw kept forever" and the replay site unless it's upgraded to Paid first]` |
-| 2 | Backend language | Go for the adapters, consumer and API | **recommended**, awaiting the user |
+| 2 | Backend language | Go for the adapters, consumer and API | **decided** (user, 2026-10-12) |
 | 3 | Frontend framework | Next.js (the global `~/.claude/CLAUDE.md` rules apply) | **decided** (user) |
-| 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **recommended**, awaiting the user |
+| 4 | Stream processing | a plain Redpanda consumer group with per-vehicle state in the consumer, plus TimescaleDB continuous aggregates for the windows. No Flink or Kafka Streams (JVM, doesn't fit in 2 GiB) | **decided** (user, 2026-10-12) |
 | 5 | Retention windows | §8 | **decided** |
 | 6 | Replay days | §9 | **decided** |
-| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **recommended**, awaiting the user. Identity depends on vehicle IDs being stable across polls `[VERIFY in the source inventory]` |
-| 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **recommended**, awaiting the user. Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
+| 7 | Event identity and schema format | identity = `(operator, vehicle, event_time)`, enforced as the primary key (`ON CONFLICT DO NOTHING`). Format = JSON on a versioned topic (`…v1`) with a JSON Schema file as the contract | **decided** (user, 2026-10-12). Identity depends on vehicle IDs being stable across polls `[VERIFY in the source inventory]` |
+| 8 | Tile source | Protomaps: a Rio-region `.pmtiles` extract on S3 + CloudFront | **decided** (user, 2026-10-12). Fonts and sprites have to be hosted too `[VERIFY: Protomaps basemaps docs]` |
