@@ -1,0 +1,246 @@
+# Workflow Guidelines — Transit Pulse
+
+> Ported from the `apuracao-2026` / `renewable-pulse` / `flora` workflow (plan before you
+> touch anything, lean on official CLIs and generators, treat documentation as part of the
+> deliverable), retargeted to this project. Section 0 is project-specific; sections 1–4 are
+> the portable rules.
+>
+> **The philosophy in one line:** plan before you write, lean on existing tooling while you
+> work, and treat documentation as part of the deliverable when you finish.
+
+---
+
+## 0. Project context — Transit Pulse
+
+A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio case study in
+**distributed, data-heavy real-time systems**:
+
+- every operator gets its own provider adapter that emits one canonical event;
+- the raw log of positions is immutable;
+- projections are idempotent and can be rebuilt;
+- thousands of moving vehicles are drawn on a map that always has a table alternative.
+
+It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
+`apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
+
+**Status (2026-10-12): planning, no code yet.** This repo holds docs only:
+`docs/tasks/TASK-repo-setup.md`. The next task is `docs/tasks/TASK-source-inventory.md`,
+which verifies every Rio source live and captures real samples into `docs/research/samples/`.
+Read in this order:
+
+1. `docs/research/README.md`: the source inventory, one row per operator. **Every cell is
+   `[VERIFY]` until that task resolves it.**
+2. `docs/architecture.md`: decisions, the canonical-event draft, phases, hosting and cost,
+   the replay-first ending, and open questions.
+
+### Decisions already made (user, 2026-10-12). Don't reopen them
+
+- **Rio first.**
+  - Start with the city's buses (SPPO) and BRT, which are expected to have live GPS feeds
+    `[VERIFY]`.
+  - Then add the whole metro area, including **state-run operators**: SuperVia (trains),
+    MetrôRio, VLT Carioca, the Barcas ferries, intercity buses (DETRO-RJ) and Niterói's city
+    buses.
+  - São Paulo and standard GTFS-Realtime cities come later.
+- **Provider adapters → one canonical event.**
+  - Every source has its own adapter that emits the same event shape.
+  - Nothing after the adapter knows which provider an event came from.
+  - The draft shape is in `docs/architecture.md` §3; it isn't final.
+- **Honest coverage tiers.**
+  - **Live**, **scheduled only** and **no public data** are three distinct states, in the
+    data contracts and in the UI.
+  - Scheduled data is never drawn as if it were live.
+- **Phases.**
+  1. Rio buses and BRT live: the pipeline, the map, and delays by line.
+  2. Static GTFS for rail and ferries: a scheduled layer and a per-operator coverage panel.
+  3. Historical backfill from Rio's public data lake (data.rio on BigQuery `[VERIFY]`), plus
+     replay.
+  4. Niterói and the rest of the metro area, then São Paulo, then GTFS-RT cities.
+- **Hosting on AWS, as cheap as possible.**
+  - It copies renewable-pulse's pattern (`renewable-pulse/docs/tasks/TASK-aws-infra.md`): one
+    `t4g.small` Spot instance running Docker Compose.
+  - Region `us-east-1`. A Budgets alarm on day one.
+  - No NAT Gateway, no ALB, no managed Kafka, no RDS.
+- **A short live run, then replay.**
+  - The live service is switched off after a while, so the case study must still work with
+    the backend off.
+  - Raw positions go to S3 as compressed files and are kept forever.
+  - A few chosen days are exported as a static replay on S3 + CloudFront, and the site says
+    plainly that it's a replay.
+- **Storage discipline.**
+  - Full-detail positions stay in the database for only a few days; aggregates are kept
+    forever.
+  - Why: renewable-pulse filled its disk during a backfill (its commit `abb09de`).
+- **The map.**
+  - MapLibre GL with OpenStreetMap tiles (Protomaps `.pmtiles` on S3, or OpenFreeMap).
+  - deck.gl for thousands of moving vehicles.
+  - Route lines from GTFS `shapes.txt`.
+  - Map-matching (OSRM/Valhalla) is a stretch goal.
+
+### Stack
+
+Nothing is installed. Every row is **planned**, and the open rows are decisions still to be
+made (`docs/architecture.md` §8). Version numbers are a snapshot, not a pin: check each
+tool's current docs before installing (§2.0).
+
+| Layer | Choice | Status |
+|---|---|---|
+| Ingestion | One adapter per provider → canonical event | planned; **language open** |
+| Broker | Redpanda (Kafka API) on the box, as in renewable-pulse | planned |
+| Stream processing | Plain consumer group vs. a stream processor | **open** |
+| Store | Postgres + TimescaleDB + PostGIS, same box | planned |
+| Raw log | S3, compressed files, kept forever | planned |
+| API | Serves precomputed views and live positions | planned; **language open** |
+| Web | MapLibre GL + deck.gl + OSM tiles (Protomaps `.pmtiles` or OpenFreeMap) | planned; **framework open** |
+| Replay | Static export of chosen days on S3 + CloudFront | planned |
+| Hosting | AWS `us-east-1`: one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned |
+| Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged, if the frontend ends up React/Next.js | — |
+
+### How to write in this repo
+
+- **Never invent a provider field, URL, endpoint or behaviour.** That covers SMTR,
+  data.rio, SuperVia, MetrôRio, VLT, Barcas, DETRO-RJ, Niterói and every GTFS/GTFS-RT feed.
+  - Write `[VERIFY: what to check and where]` inline instead.
+  - Resolve it against a real response captured into `docs/research/samples/` before any
+    code depends on it.
+  - Every availability claim from the planning conversation came from memory and is
+    unverified.
+- **Be specific to the point of discomfort:** exact URLs, exact poll intervals, exact
+  numbers.
+  - No acceptance criterion may rest on "works" or "fast enough".
+  - State the vehicles per poll, the events per second, the p95 latency and the bytes per day.
+- **Sources over memory.** Anything about a provider, a library or a hosting platform is
+  checked against the live source, and the source is linked.
+
+### Invariants — never break these without changing the spec first
+
+1. **Real data only.**
+   - Every vehicle position traces back to a real provider response.
+   - Nothing is synthetic, simulated or interpolated and then shown as observed.
+   - A gap (an unrecorded period, a failed fetch) is shown as missing, never smoothed over.
+   - Replaying real recorded positions is fine. Fabricating one is not.
+2. **Raw positions are immutable.**
+   - Every provider response we fetch is stored as received, compressed, in S3, and kept
+     forever.
+   - Everything else is a projection that can be rebuilt from that raw log: database rows,
+     aggregates, delays by line, the replay export. A projection is never the source of
+     truth.
+3. **Ingestion is idempotent.**
+   - Fetching or processing the same provider response twice changes nothing.
+   - Events have a deterministic identity (e.g. operator + vehicle + `event_time`).
+4. **Be a polite client to every provider.**
+   - Poll no faster than the source updates.
+   - Use conditional requests where the provider supports them `[VERIFY per source]`.
+   - Keep a hard request budget per source and back off on 4xx/5xx.
+   - Never proxy our readers straight through to a provider.
+5. **Readers never touch the ingestion path.**
+   - Viewer traffic is served from precomputed or cached views.
+   - A traffic spike must not slow ingestion.
+   - An ingestion stall must not take the site down; it shows "last updated at …".
+6. **Missing is not zero.**
+   - **Live**, **scheduled only** and **no public data** are three distinct coverage states.
+   - So are "no vehicles reported" and "fetch failed".
+   - All of these are distinct in contracts and in the UI. Scheduled data is never drawn as
+     if it were live.
+7. **WCAG 2.2 AA.**
+   - The map is never the only way to read a result; a table or list alternative is
+     required.
+   - Colour is never the only carrier of meaning (mode, tier, delay).
+   - Motion respects `prefers-reduced-motion`.
+
+### Tests
+
+- **Integration tests against real infrastructure** (testcontainers or equivalent), never a
+  mocked database or broker.
+- **Parsers are tested against the real captured samples** in `docs/research/samples/`,
+  never hand-built fixtures.
+- **Idempotency is a test:** ingest the same provider response twice and assert nothing
+  changed.
+- **Replay is a test:** rebuild a projection from the raw S3 log and assert it equals the
+  live projection.
+- **Performance claims need medians of repeated runs**, never a single measurement.
+
+---
+
+## 1. Plan before executing — write a task document first
+
+**Rule:** Before editing or creating **any** code file, write a task document at
+`docs/tasks/TASK-<slug>.md`. No exceptions for "small" changes.
+
+Required sections, in order:
+
+1. **Current scenario**: how it works today, and what's missing or blocked.
+2. **Planned changes**: file by file, plus alternatives considered and rejected.
+3. **Why**: what it unblocks and what it costs.
+4. **Affected files**: a table of `File | Change type | Notes`.
+
+Write the document, summarize it in 2–3 lines, and wait for alignment on anything
+significant before writing code. Keep it in sync if the plan changes. The task document is
+the contract.
+
+## 2. Use CLIs, generators, and SDKs — don't write everything by hand
+
+### 2.0 Assume your framework knowledge is outdated — check first, every time
+
+1. Go to the tool's own current docs first: the chosen framework, MapLibre, deck.gl,
+   Redpanda, TimescaleDB, PostGIS, Terraform/CDK, and GTFS / GTFS-Realtime.
+2. Use the official CLI or generator to scaffold, never a hand-written copy of what it
+   produces.
+3. Take the current stable major as authoritative over anything written here, and update
+   this file's stack table to match (§3).
+4. One package manager per language, decided at scaffold time, never mixed.
+
+Hand-writing is for what no generator covers: the adapters, the canonical event, the
+projections, the replay export and the map layers. Match the style of the surrounding code.
+
+## 3. Update documentation after executing
+
+A task isn't done until every doc it affects is updated:
+
+- **`CLAUDE.md`**: if the stack, architecture or an invariant changes.
+- **`docs/architecture.md`**: if a `[VERIFY]` resolves, an open question closes, or scope
+  changes.
+- **`docs/research/`**: if a new fact about a provider is observed. Update the inventory row
+  and add the captured sample.
+- **`.env.example`** (once code exists): every environment variable the code reads.
+- **`README.md`**: the status line, setup and scripts.
+
+When unsure, grep for the thing you changed across these files.
+
+## 4. Project conventions
+
+A single repo. The layout is decided once the open stack questions close. Today it holds:
+
+```
+docs/
+  research/     source inventory + samples/ (real captured provider responses)
+  tasks/        task documents (§1)
+  architecture.md
+```
+
+- **Samples:** keep small, representative captures in git (a single response, a trimmed
+  GTFS zip). Large files stay out (see `.gitignore`); record their source URL and capture
+  time instead.
+
+### 4.1 Commit conventions
+
+- **Commit automatically once a task document's work is complete and verified** (build,
+  lint and tests passing, where they exist). Don't wait to be asked each time.
+- **Never run destructive git commands without asking.** Force-push, `reset --hard`,
+  branch deletion and history rewrites need explicit confirmation.
+- **No `Co-Authored-By` trailer.** User preference for every repo.
+
+---
+
+## TL;DR
+
+| Phase | Rule | Output |
+|---|---|---|
+| **Research** | Verify every source live, never from memory | `docs/research/` + real samples |
+| **Before** | Write a task document first | `docs/tasks/TASK-<slug>.md`: current scenario, planned changes, why, affected files |
+| **During** | Official CLIs and generators; `[VERIFY: …]` for anything unconfirmed | canonical, reproducible output |
+| **After** | Update `CLAUDE.md` / `docs/architecture.md` / `docs/research/` / `README.md`, then commit | docs in sync, a commit with no `Co-Authored-By` |
+
+**Never broken:** real data only, raw positions immutable and replayable, idempotent
+ingestion, polite to every provider, readers isolated from ingestion, missing ≠ zero (live /
+scheduled only / no public data), WCAG 2.2 AA.
