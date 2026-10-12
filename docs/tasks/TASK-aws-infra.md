@@ -1,0 +1,401 @@
+# TASK-aws-infra
+
+> Written 2026-10-12. Puts the phase 1 stack on AWS, ships the raw log to S3 and puts the web on a
+> public URL. It copies `renewable-pulse/docs/tasks/TASK-aws-infra.md` (deployed in the same account
+> on 2026-09-27) and changes what this project needs differently. **Prerequisite:
+> `TASK-replay-flake.md` is done** (green `make test`).
+>
+> Rules for the executing session: every `[VERIFY: …]` is resolved against the live docs, the
+> console or the CLI before the code that depends on it is written, and the answer is recorded in
+> §6. Phases run in order. Each phase is committed when its checks in §5 pass.
+
+## 1. Current scenario
+
+- **Everything runs on the Mac.** `make up` (Redpanda + TimescaleDB), `make adapter-its`,
+  `make consumer`, `make api`, `make web-dev`. The raw log is `./var/raw` on the Mac's disk and
+  nowhere else, so invariant 2 ("raw positions on S3, kept forever") **isn't met yet**.
+- **Recording time is limited.** The Free-plan account `860897618882` closes around 2027-03-27,
+  or earlier if the shared credits run out (architecture §7.1). The three replay days
+  (architecture §9) can only be recorded while the stack is live. Réveillon is 2026-12-31.
+- **Measurements that were deferred to this task:**
+  - the consumer's 30-minute sustained live run: lag, RSS, TimescaleDB and Redpanda memory
+    (`TASK-positions-consumer.md` E8);
+  - box memory under load, and whether `t4g.small` holds (architecture §6);
+  - bytes per row in `positions` with live arrival order (architecture §8);
+  - the snapshot query on a full-day chunk: 430 ms median on 1.1 M rows locally, and a full day is
+    about 12× larger (`TASK-live-map.md` §7);
+  - self-hosted glyphs and sprites (architecture §10 #8).
+- **What already exists in the account** (renewable-pulse, verified 2026-09-27 in its task doc):
+  - IAM user `benito-admin`, with CLI access through `aws login` (aws-cli 2.37.4 on this Mac;
+    Terraform 1.16.4 is installed too);
+  - Budget `renewable-pulse-monthly` (USD 20);
+  - a `t4g.small` Spot instance in `us-east-1c` with its own VPC, EIP `52.5.78.81`, and
+    `renewable-pulse.duckdns.org`;
+  - Spot vCPU quota 5 (`L-34B43A08`), of which renewable-pulse uses 2.
+- **There's no git remote and no CI** (`TASK-scaffold.md` §2.7), so renewable-pulse's GitHub
+  Actions + OIDC deploy doesn't apply.
+- **The web assumes it's served next to the API.** `next.config.ts` rewrites `/api/*` →
+  `127.0.0.1:8080`. `live-map-canvas.tsx` reads `${origin}/tiles/rio.pmtiles` (git-ignored, from
+  `make tiles`) and Protomaps' hosted glyphs and sprites.
+
+## 2. Planned changes
+
+### 2.0 Shape of the target
+
+```
+ Browser ──HTTPS──▶ Vercel (apps/web, Hobby)
+                     ├─ /api/*   rewrite ──HTTPS──▶ Caddy on EC2 ──▶ api (in-memory snapshot)
+                     └─ tiles, glyphs, sprites ◀── CloudFront ◀── S3 (tiles bucket, private, OAC)
+
+ EC2 t4g.small Spot, us-east-1, its own VPC, EIP, no SSH (SSM only)
+   compose: caddy · api · consumer · adapter-its · redpanda · timescaledb
+   /data (30 GiB gp3, separate volume): pg data, redpanda data, raw log, adapter state
+   raw-sync timer (every 10 min) ──▶ S3 raw bucket (versioned, no delete for the instance)
+   CloudWatch agent + custom raw metrics ──▶ alarms ──▶ SNS email
+```
+
+- **One instance for this project, separate from renewable-pulse.** Its own Terraform state, VPC,
+  security group and EIP. Two separate boxes means a memory problem in one project can't take
+  down the other. The Spot quota allows it (2 + 2 of 5 vCPU).
+- **Web on Vercel, not on the box.** This replaces the "Caddy serves the web" assumption in
+  `next.config.ts`'s comment and in CLAUDE.md. Reasons:
+  - the 2 GiB box has no room for a Next.js server;
+  - the public link has to outlive the AWS account (architecture §7.1);
+  - renewable-pulse already works this way.
+- **The browser only talks to Vercel.** Vercel proxies `/api/*` to the box, so the API needs no
+  CORS, and an ad blocker that flags `duckdns.org` (seen with renewable-pulse) never sees that
+  name.
+- **No database backups.** The database is a projection (invariant 2). Recovery means rebuilding
+  from the raw log, and §2.7 drills it. The raw log is the only thing that's backed up, and it's
+  the most important data this task protects.
+- **Not used:** NAT Gateway, ALB, RDS, MSK, EKS, GitHub Actions, DLM snapshots, `pg_dump`.
+
+### 2.1 Cost (re-check every price, `[VERIFY: AWS pricing pages + current Spot price in us-east-1]`)
+
+| Item | Basis | Monthly |
+|---|---|---|
+| `t4g.small` Spot | ~USD 0.006–0.009/h (renewable-pulse, 2026-09-27) | ~USD 5 |
+| Elastic IP | USD 0.005/h | USD 3.65 |
+| EBS gp3: 16 GiB root + 30 GiB data | USD 0.08/GB-mo | USD 3.68 |
+| S3 raw: ≈ 15.5 GB/month added (517 MiB/day), Standard 30 days, then IA | architecture §8 | < USD 1 in month 1, ≈ USD 1 by month 4 |
+| S3 PUTs: raw-sync | ≈ 24 hour-files × 6 syncs/h ≈ 4.3 k PUT/day, plus re-uploads of the growing hour | < USD 1 |
+| CloudFront + tiles bucket (45 MB) | `[VERIFY: Free-plan CloudFront terms; the always-free 1 TB/month]` | ≈ USD 0 |
+| CloudWatch: 2 agent metrics + 2 custom metrics + 6 alarms | `[VERIFY]` | ≤ USD 2 |
+| ECR: 1 repo, a few ~20 MB images | | < USD 0.10 |
+| Vercel Hobby | free | USD 0 |
+| **Total** | | **≈ USD 14** |
+
+Together with renewable-pulse (~12) and Apuração (~40), that's about USD 66/month against the
+shared credits. Record the remaining credit in §6 at the start `[VERIFY: Billing console →
+Credits]`, and work out the month in which the credits run out. If that's before Réveillon, tell
+the user before Phase 2.
+
+### 2.2 Phase 0: account checks (Mac, CLI; nothing is created except the budget)
+
+1. `aws login`, then `aws sts get-caller-identity` → `user/benito-admin`.
+2. Spot: `describe-spot-price-history` for `t4g.small` Linux in every us-east-1 AZ over the last
+   24 h. Pick the cheapest AZ and record it. The data volume is bound to that AZ for good.
+3. Quota: `service-quotas get-service-quota --service-code ec2 --quota-code L-34B43A08`. It needs
+   ≥ 4 with renewable-pulse running.
+4. **Budgets: both are decided by the user.** Add `transit-pulse-monthly` (USD 20, filtered on the
+   tag `project=transit-pulse` `[VERIFY: cost allocation tag activation in Billing; tags take up
+   to 24 h to appear]`), with the same alerts as renewable-pulse (actual 50/85/100%, forecast
+   100%, `IncludeCredit=false`), outside Terraform. **Check whether `renewable-pulse-monthly`
+   has a filter.** If it has none, it's already the account-wide budget, and its USD 20 limit is
+   below the three projects' combined ~USD 66. Ask the user whether to raise it or add an
+   `account-total` budget.
+5. **Fallback instance type, checked now so an OOM later isn't a surprise.** Architecture §6 says
+   `t4g.medium`, but it's **not** in the Free-plan eligible list renewable-pulse recorded
+   (`t3.micro t3.small t4g.micro t4g.small c7i-flex.large m7i-flex.large t8i.micro t8i.small`).
+   The eligible next step up is `m7i-flex.large` (2 vCPU, 8 GiB, **x86**). If it's ever needed,
+   the image must be built for `linux/amd64` too. Record its Spot price, and fix architecture §6.
+
+### 2.3 Phase 1: Terraform
+
+```
+infra/terraform/
+  bootstrap/main.tf     # local state → state bucket (versioned, SSE-S3, public access blocked), then migrated into it
+  prod/
+    versions.tf         # terraform + aws provider pins, S3 backend with use_lockfile = true
+    network.tf          # VPC 10.30.0.0/16, one public subnet in the §2.2 AZ, IGW, SG 80+443 in
+    compute.tf          # instance, EIP, data volume (prevent_destroy), instance profile
+    storage.tf          # raw bucket, ops bucket, tiles bucket + CloudFront
+    ecr.tf              # one repo: transit-pulse/go
+    observability.tf    # SNS + email, alarms (§2.6)
+    ssm.tf              # parameter names only: /transit-pulse/prod/POSTGRES_PASSWORD, /ITS_CONTACT
+    user-data.sh.tftpl
+    outputs.tf
+```
+
+- **Provider default tags:** `project = transit-pulse` on everything (for the budget filter).
+- **Instance:** the same block as renewable-pulse:
+  - `t4g.small`, AL2023 arm64 AMI from the SSM parameter;
+  - Spot `persistent`, interruption `stop`, `use_spot` variable;
+  - IMDSv2 required;
+  - root 16 GiB gp3. 12 GiB was enough for renewable-pulse, but this stack adds a local raw
+    buffer and pmtiles tooling, so the extra 4 GiB is margin.
+- **Data volume: 30 GiB gp3** (decided, architecture §8), `prevent_destroy`, mounted at `/data`.
+  user-data runs `mkfs` only when `blkid` finds no filesystem.
+- **Instance role:**
+  - `AmazonSSMManagedInstanceCore`, `AmazonEC2ContainerRegistryReadOnly`,
+    `CloudWatchAgentServerPolicy`;
+  - inline: `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` on the raw bucket. **No
+    `s3:DeleteObject`, `s3:DeleteObjectVersion` or `s3:PutLifecycleConfiguration`**, so the box
+    can never destroy the raw log. `GetObject` + `ListBucket` on `ops/*`.
+    `ssm:GetParameters` on `/transit-pulse/prod/*`. `cloudwatch:PutMetricData` limited by
+    condition to the namespace `TransitPulse`.
+- **Raw bucket** `transit-pulse-raw-<account>`:
+  - versioning **on**: a re-upload of a growing hour file keeps the old version, and nothing is
+    ever lost to an overwrite;
+  - lifecycle: current versions → Standard-IA after 30 days (architecture §8); **noncurrent
+    versions expire after 30 days**. That's safe because raw files are append-only, so an older
+    version is always a prefix of the newer one;
+  - public access blocked; SSE-S3.
+  - `[VERIFY: S3 Object Lock is not used; versioning plus a role without delete is enough, and
+    Object Lock would get in the way of the account move]`
+- **Ops bucket** `transit-pulse-ops-<account>`: holds `deploy/<sha>/` (compose file, Caddyfile,
+  scripts). Lifecycle expires deploy files after 30 days.
+- **Tiles bucket + CloudFront:**
+  - the bucket is private; CloudFront uses Origin Access Control.
+  - CloudFront has a response-headers policy with CORS for the Vercel origin and
+    `Access-Control-Expose-Headers: Content-Range, Content-Length, ETag`.
+  - `Range` requests must pass through and return `206`
+    `[VERIFY: CloudFront caching of byte-range requests to S3; the pmtiles docs' "Cloud Storage /
+    S3 + CloudFront" recipe]`.
+  - It holds `rio.pmtiles` (from `make tiles`), plus glyphs and sprites copied from
+    `protomaps/basemaps-assets` at a pinned commit `[VERIFY: that repo's license and its
+    recommended way to self-host]`.
+
+### 2.4 Phase 2: images, compose, deploy
+
+**One image.** A new `Dockerfile` at the repo root (multi-stage):
+- build `adapter-its`, `consumer`, `api` and `rebuild` with `CGO_ENABLED=0` for `linux/arm64`;
+- copy them into `gcr.io/distroless/static-debian12:nonroot` `[VERIFY: current distroless tag]`;
+- compose picks the binary with `command:`.
+- It's tagged with the git SHA and pushed to the single ECR repo (immutable tags, scan on push,
+  keep 5 tagged and expire untagged after 1 day; that rule is renewable-pulse's Phase 2
+  follow-up).
+- Built natively on the Mac (arm64), so there's no emulation.
+
+**`infra/aws/compose.prod.yml`.** Local `compose.yaml` is unchanged.
+
+| Service | Image | `mem_limit` | Notes |
+|---|---|---|---|
+| redpanda | same tag as `compose.yaml` (v26.2.4) | 700m | `--smp 1 --memory 512M`, internal listener only, data in `/data/redpanda` |
+| timescaledb | same tag as `compose.yaml` (`pg18.6-ts2.30.2`), **pinned by digest** | 600m | data in `/data/pg`; `shared_buffers` and `work_mem` set explicitly for 600m `[VERIFY: timescaledb-ha image docs on tuning env vars vs a mounted postgresql.conf]` |
+| adapter-its | ECR `go:<sha>` | 128m | `RAW_DIR=/data/raw`, state in `/data/adapter`, `ITS_CONTACT` from SSM |
+| consumer | ECR `go:<sha>` | 192m | |
+| api | ECR `go:<sha>` | 128m | `API_ADDR=0.0.0.0:8080`, not published on the host |
+| caddy | `caddy:2` pinned | 64m | TLS for the API hostname; proxies `/v1/*` and `/healthz` to `api:8080` and nothing else |
+
+- The limits add up to 1.81 GiB of the box's ≈ 1.84 GiB, plus a 2 GiB swapfile (as in
+  renewable-pulse). TimescaleDB gets 150m more than renewable-pulse because this project writes
+  ≈ 155 rows/s, against renewable-pulse's bursts. Phase 4 measures whether these numbers are
+  right. The first OOM kill is investigated, never fixed by quietly raising a limit.
+- Every service has `restart: unless-stopped` and a healthcheck. Ports 5432, 9092 and 8080 are
+  never published on the host.
+- **Hostname:** `transit-pulse.duckdns.org` `[DECIDE: user creates the DuckDNS name and points it
+  at the EIP, once]`.
+- **`make deploy`** → `scripts/deploy.sh`:
+  1. refuse to run if the git tree is dirty;
+  2. `docker build`, then push `go:<sha>`;
+  3. upload `infra/aws/*` to `s3://ops/deploy/<sha>/`;
+  4. `aws ssm send-command` runs `/opt/transit-pulse/remote-deploy.sh <sha>` on the box, which:
+     - pulls the files;
+     - writes `/opt/transit-pulse/.env` (mode 0600) from SSM;
+     - sets `CADDYFILE_SHA256` so a Caddyfile change recreates Caddy (renewable-pulse's reload
+       bug);
+     - runs `docker compose up -d`;
+     - waits up to 120 s for `curl https://<host>/healthz` to return 200, and exits non-zero
+       otherwise;
+  5. wait on `ssm get-command-invocation` and print its output.
+- **First start:**
+  - The consumer runs `store.Migrate` itself (it already does).
+  - The adapter backfills up to 23 h by itself (`ITS_BACKFILL_WINDOW`), so a fresh box fills the
+    last day from the provider, politely, at 1 request/s.
+  - **The Mac's recorded raw log is uploaded once** with `aws s3 sync ./var/raw
+    s3://raw/raw/` from the Mac, so nothing recorded locally is lost. Check it with §2.5's
+    manifest.
+
+### 2.5 Phase 3: the raw log to S3
+
+`infra/aws/raw-sync.sh` runs from a systemd timer every 10 minutes:
+
+1. `aws s3 sync /data/raw s3://<raw>/raw/ --checksum-algorithm SHA256`. Only files whose size
+   or mtime changed are uploaded `[VERIFY: aws s3 sync supports --checksum-algorithm in
+   aws-cli 2.x, and HeadObject --checksum-mode ENABLED returns a full-object SHA256 for
+   single-part uploads (multipart returns a composite checksum; hour files are ≈ 21 MiB, so set
+   multipart_threshold above 64 MiB in the CLI config)]`.
+2. **Sealing.** An hour file can still be appended to while its minutes are inside the adapter's
+   backfill window (23 h). Once an hour is **more than 25 h old**, it's sealed:
+   - compute its local SHA-256;
+   - `head-object --checksum-mode ENABLED` and compare;
+   - on a match, append `<sha256>  <key>  <bytes>` to `s3://<raw>/manifests/<yyyy>/<mm>/<dd>.sha256`;
+     the day's manifest file is rewritten whole, and versioning keeps the old ones.
+3. **Local pruning.** A local file is deleted only when it's sealed, its manifest line is in S3,
+   **and** it's older than 4 days. That keeps a local buffer of about 2 GiB and covers a multi-day
+   S3 problem.
+4. **Metrics** in namespace `TransitPulse`:
+   - `RawSyncSucceeded = 1` on each clean run;
+   - `RawNewestFileAgeSeconds`: the age of the newest *write* under `/data/raw`. It goes up when
+     the adapter stalls, even if S3 is fine.
+5. **Exit runbook** (architecture §7.1): `scripts/pull-raw.sh` on the Mac runs `aws s3 sync` of
+   `raw/` and `manifests/` to a local directory, then checks every line of every manifest with
+   `shasum -a 256`. It prints the counts, and exits non-zero on any mismatch or missing file.
+   It's run once in Phase 5 as a drill, then at least monthly, and once more before the account
+   closes.
+
+### 2.6 Phase 3b: alarms (SNS email)
+
+| Alarm | Condition | Why |
+|---|---|---|
+| `/data` disk | ≥ 70% for 15 min | architecture §8 (renewable-pulse `abb09de`) |
+| memory | ≥ 90% for 10 min | |
+| status check | `StatusCheckFailed` ≥ 1 | |
+| raw sync | `RawSyncSucceeded` missing for 2 h (`treat_missing_data = breaching`) | invariant 2: the raw log isn't reaching S3 |
+| adapter stall | `RawNewestFileAgeSeconds` > 900 for 10 min | nothing is being recorded |
+| Spot stop | EventBridge rule: EC2 state change to `stopped` for this instance → SNS | so an interruption is noticed |
+
+Each alarm is triggered once with `aws cloudwatch set-alarm-state`, and the email arrives (§5).
+
+### 2.7 Phase 4: web on Vercel, tiles on CloudFront
+
+- **Vercel project** for `apps/web`, deployed from the Mac with the Vercel CLI (there's no git
+  remote) `[VERIFY: current Vercel CLI deploy flow for a pnpm project in a subdirectory, Node 24]`.
+- **`next.config.ts`:** the rewrite destination comes from `API_ORIGIN`, which defaults to
+  `http://127.0.0.1:8080` so local dev is unchanged. On Vercel it's
+  `https://transit-pulse.duckdns.org`. Fix the comment that says Caddy serves the web.
+- **Caching keeps readers off the box (invariant 5).**
+  - The API already sends `Cache-Control: public, max-age=10` and an `ETag`. Add
+    `s-maxage=10` for shared caches.
+  - Check that Vercel's CDN caches the rewritten response, so a traffic spike reaches the box
+    at most once per 10 s per region, not once per viewer.
+  - `[VERIFY: Vercel docs on caching responses of external rewrites, and that gzip
+    Content-Encoding and ETag/304 pass through]`
+  - If Vercel doesn't cache them, record that here. The API is in-memory and costs
+    microseconds, but then a spike reaches the box, and §5 must measure it.
+- **Tiles:** a new variable `NEXT_PUBLIC_TILES_BASE_URL` gives the base URL for `rio.pmtiles`,
+  `glyphs/` and `sprites/`. It defaults to the current local paths, so `make web-dev` is
+  unchanged. `make tiles-upload` copies the extract and assets to the tiles bucket.
+
+### 2.8 Phase 5: the deferred measurements and the rebuild drill
+
+Medians of 3 where it's a number (CLAUDE.md "Tests").
+
+1. **E8, the sustained run** (from `TASK-positions-consumer.md`):
+   - record over 30 min of live traffic, sampled every 60 s:
+     - consumer lag (`rpk group describe`);
+     - consumer RSS;
+     - `docker stats` for every service;
+     - host memory and swap.
+   - Pass: lag is under 1 minute's worth of events at the end; no OOM kill; swap use is
+     recorded.
+2. **After 24 h live:**
+   - bytes per row in `positions` (re-measures architecture §8's 289 B);
+   - the snapshot query's time on a full-day chunk, median of 3 refreshes from the api's logs.
+   - If the median is above 5 s, stop and plan the index or a summary table. Don't add it in
+     this task.
+3. **After 4 days:** `/data` use is under 70%, retention has dropped at least one chunk, and
+   the raw-sync buffer is pruning.
+4. **Rebuild drill** (the restore procedure; there are no backups):
+   - into a **scratch database** on the box, rebuild one full hour from files pulled back from
+     S3 into a temp directory;
+   - compare its rows with the live database for the same `event_time` window using
+     `sameTables`' column set, as a throwaway SQL script;
+   - pass: 0 differing rows. Record the time it took.
+5. **`scripts/pull-raw.sh` drill:** the first day's manifest checks 24 of 24 hours locally.
+
+### 2.9 Alternatives considered and rejected
+
+- **One bigger box shared with renewable-pulse:** that couples the two projects' failures, and
+  `t4g.medium` isn't Free-plan eligible.
+- **The web on the box behind Caddy:** there's no memory left for it, and the link would die
+  with the account.
+- **The adapter writing to S3 directly:** it would add an AWS dependency and an AWS failure mode
+  to the ingestion hot path. The local file stays the first write, as it is today, and shipping
+  is a separate, restartable process.
+- **One S3 object per poll:** at 1,440+ objects/day that's more PUTs and is under IA's 128 KB
+  minimum (architecture §8). Hour files are kept.
+- **GitHub Actions + OIDC:** there's no remote. Revisit when the user creates one.
+- **`pg_dump` backups + DLM snapshots:** the database is a projection, and recovery is the
+  rebuild (§2.8.4).
+
+## 3. Why
+
+- **It satisfies invariant 2 for real.** The raw log is on S3, checksummed, and pulled back
+  to the Mac in a drill.
+- **Recording starts early.** That decides how many replay days exist, including Réveillon.
+- **It answers the deferred questions** on the hardware that matters: memory, lag, bytes per
+  row, and the snapshot query on a full chunk.
+- **It gives the map a public URL**, ready for the UX work (`docs/research/ux-direction.md`).
+- **Cost:** ≈ USD 14/month, about a day of a Sonnet session to execute, and a fixed date by
+  which the exit runbook must run.
+
+## 4. Affected files
+
+| File | Change type | Notes |
+|---|---|---|
+| `infra/terraform/bootstrap/*` | new | state bucket |
+| `infra/terraform/prod/*` | new | §2.3 |
+| `infra/aws/compose.prod.yml` | new | §2.4 |
+| `infra/aws/Caddyfile` | new | API only |
+| `infra/aws/remote-deploy.sh` | new | runs on the box |
+| `infra/aws/raw-sync.sh` + `raw-sync.service` + `raw-sync.timer` | new | §2.5 |
+| `infra/aws/cloudwatch-agent.json` | new | disk `/data`, memory |
+| `Dockerfile`, `.dockerignore` | new | one image, four binaries |
+| `scripts/deploy.sh`, `scripts/pull-raw.sh` | new | Mac side |
+| `Makefile` | edit | `deploy`, `tiles-upload`, `pull-raw` |
+| `apps/api/server.go` | edit | `s-maxage=10` on the snapshot |
+| `apps/web/next.config.ts` | edit | `API_ORIGIN`; fix the comment |
+| `apps/web/components/live-map-canvas.tsx` | edit | `NEXT_PUBLIC_TILES_BASE_URL` for pmtiles, glyphs, sprites |
+| `.env.example` | edit | `API_ORIGIN`, `NEXT_PUBLIC_TILES_BASE_URL`, deploy variables |
+| `.gitignore` | edit | `*.tfstate*`, `.terraform/`, `*.tfvars` except `*.tfvars.example`, `.vercel/` |
+| `CLAUDE.md` | edit | stack table (Hosting, Raw log, Web), the web on Vercel, the layout tree, status line |
+| `docs/architecture.md` | edit | §6 (fallback type, real costs), §7.1 (pull-raw), §10 #8 (glyphs and sprites resolved) |
+| `docs/tasks/TASK-positions-consumer.md` | edit | E8: point to §5 here |
+| `README.md` | edit | status, deploy section |
+
+## 5. Verification
+
+"Works" is not a criterion. Each phase is committed when its checks pass.
+
+- **Phase 0:**
+  - identity is `benito-admin`;
+  - the AZ and Spot prices are recorded;
+  - quota ≥ 4;
+  - both budgets are confirmed with the user and created;
+  - the `m7i-flex.large` Spot price is recorded.
+- **Phase 1:**
+  - `terraform plan` shows 0 changes after `apply`;
+  - `aws ssm start-session` opens a shell;
+  - the security group rules (`describe-security-group-rules`, not `nc`, which renewable-pulse
+    found unreliable from this network) show ingress 80/443 only;
+  - `findmnt /data` shows 30G; `swapon --show` shows 2G;
+  - an attempted `aws s3api delete-object` on the raw bucket **from the box** returns
+    `AccessDenied`.
+- **Phase 2:**
+  - `docker compose ps` shows all 6 services healthy;
+  - `curl https://transit-pulse.duckdns.org/healthz` returns `refresh_ok: true`;
+  - `/v1/vehicles/latest` returns a count within ±10% of a fresh direct ITS count for the same
+    minute (one `curl` of the provider, done once by hand and politely);
+  - no OOM kill (`docker inspect … OOMKilled`).
+- **Phase 3:**
+  - after 30 min, S3 holds the current hour's file and its size matches the local one;
+  - after 26 h, the first manifest exists, and every line in it matches `shasum` of the local
+    file;
+  - the Mac's old raw log is uploaded and its manifest checks out;
+  - all six alarms are triggered once and their emails arrive.
+- **Phase 4:**
+  - the Vercel URL renders the map, the table and the status strip with live data;
+  - the browser's network panel shows `/api/v1/vehicles/latest` served same-origin, and
+    `rio.pmtiles` from CloudFront with `206`;
+  - 2 requests within 10 s from one location: the second shows a Vercel cache hit (record the
+    header);
+  - axe reports 0 violations on the deployed URL.
+- **Phase 5:** §2.8 items 1–5, each recorded with numbers in §6.
+- **Cost:** after 7 days, Cost Explorer's daily run rate × 30 for `project=transit-pulse` is
+  within ±30% of §2.1.
+
+## 6. Results
+
+*(Filled in by the executing session, phase by phase.)*
