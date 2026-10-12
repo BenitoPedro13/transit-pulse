@@ -119,6 +119,7 @@ type countingDB struct {
 	inner     querier
 	snapshots atomic.Int64 // vehiclesQuery: the snapshot query
 	probes    atomic.Int64 // stateQuery: the feed_status probe
+	history   atomic.Int64 // the three history queries (status, load, merge)
 }
 
 func (c *countingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -127,6 +128,8 @@ func (c *countingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Ro
 		c.snapshots.Add(1)
 	case stateQuery:
 		c.probes.Add(1)
+	case historyStatusQuery, historyLoadQuery, historyMergeQuery:
+		c.history.Add(1)
 	}
 	return c.inner.Query(ctx, sql, args...)
 }
@@ -172,6 +175,18 @@ func TestLoadConfig(t *testing.T) {
 	if _, err := LoadConfig(env(nil)); err == nil {
 		t.Error("an empty DATABASE_URL was accepted")
 	}
+	if c.HistoryHours != 3 {
+		t.Errorf("default HistoryHours = %d, want 3", c.HistoryHours)
+	}
+	c, err = LoadConfig(env(map[string]string{"DATABASE_URL": "postgres://x", "HISTORY_HOURS": "6"}))
+	if err != nil || c.HistoryHours != 6 {
+		t.Errorf("HISTORY_HOURS=6 = %+v, %v", c, err)
+	}
+	for _, bad := range []string{"0", "-1", "73", "three", "1.5"} {
+		if _, err := LoadConfig(env(map[string]string{"DATABASE_URL": "postgres://x", "HISTORY_HOURS": bad})); err == nil {
+			t.Errorf("HISTORY_HOURS=%q was accepted", bad)
+		}
+	}
 }
 
 func TestEnvExampleListsEveryVariable(t *testing.T) {
@@ -179,7 +194,7 @@ func TestEnvExampleListsEveryVariable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"DATABASE_URL", "API_ADDR"} {
+	for _, k := range []string{"DATABASE_URL", "API_ADDR", "HISTORY_HOURS"} {
 		if !strings.Contains(string(b), k+"=") {
 			t.Errorf(".env.example does not list %s", k)
 		}

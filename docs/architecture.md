@@ -153,6 +153,16 @@ live sources on 2026-10-12.
   `gap` minute appears in `coverage` and never as zero vehicles (invariant 6). Measured in
   `docs/tasks/TASK-live-map.md` §7: 2,627 vehicles, 48.6 KB gzipped, p95 ≤ 1 ms. The one cost to watch
   is the snapshot query, a sequential scan of the newest chunk because `positions` has no time index.
+- **The API also keeps the last hours in memory for the time machine (built 2026-10-12).** On start
+  it streams the last `HISTORY_HOURS` (default 3) UTC hours of `positions` once and folds them in Go
+  into one sample per vehicle per minute: the newest real fix in that minute, by the snapshot's own
+  tie rule, never interpolated. Each hour is encoded once as a `history-hour.v1` file (JSON Schema in
+  `packages/contracts`), gzipped, and served with an ETag at `GET /v1/history/{hour}`
+  (`GET /v1/history` lists the hours). After that, each 10 s tick reads the window's `feed_status`
+  rows (one indexed query, ~700 rows) and re-reads only the minutes whose row is new or changed, by
+  their earliest raw minute, so a backfilled minute rebuilds its own hour and no other. Past hours
+  older than the backfill window are `complete: true` and served `immutable`. A request still never
+  queries. Measured in `docs/tasks/TASK-time-machine.md` §6.
 
 ## 6. Hosting and cost sketch
 
@@ -219,7 +229,10 @@ backend off:
    the raw log, so the export is itself a projection.
 3. The site says plainly that it's showing a replay of a named date, never "live".
 4. The live backend and the replay share one view contract, so the web app doesn't care which
-   one it's reading `[VERIFY: design in the replay task]`.
+   one it's reading. **Resolved 2026-10-12:** the contract is `history-hour.v1`
+   (`packages/contracts/history-hour.v1.schema.json`): one file per UTC hour, one sample per vehicle
+   per minute, a per-minute coverage record. The API serves it from memory; the replay export will
+   write the same files to S3, and the time machine in the web app reads either.
 
 ### 7.1 Account lifetime (Free plan)
 

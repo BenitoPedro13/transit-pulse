@@ -51,13 +51,13 @@ func run(lg *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	srv := newServer(pool, lg, options{})
+	srv := newServer(pool, lg, options{historyHours: cfg.HistoryHours})
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	hs := &http.Server{Handler: srv.routes(), ReadHeaderTimeout: 5 * time.Second}
-	lg.Info("api started", "addr", ln.Addr().String(), "window_seconds", windowSeconds)
+	lg.Info("api started", "addr", ln.Addr().String(), "window_seconds", windowSeconds, "history_hours", cfg.HistoryHours)
 
 	refresherDone := make(chan struct{})
 	go func() { defer close(refresherDone); srv.Run(ctx) }()

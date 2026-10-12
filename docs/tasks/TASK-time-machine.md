@@ -292,4 +292,61 @@ keeps Zustand for.
 
 ## 6. Results
 
-*(Filled in by the executing session.)*
+### Part A: API and contract
+
+Done 2026-10-12. Files: `packages/contracts/history-hour.v1.schema.json`, `apps/api/history.go`,
+`history_test.go`, edits to `server.go`, `config.go`, `main.go`, `api_test.go`, `.env.example`.
+
+**Where the build differs from §2.1–2.2** (each is a decision the plan left open or got slightly wrong):
+
+- **Whole UTC hours, not a rolling cut.** The window is the last `HISTORY_HOURS` hour slots ending
+  with the current hour, so with 3 it holds 2 h 01 min to 3 h of data. A file is always a whole hour.
+- **The newest minute is the newest every feed has a row for** (`min` over feeds of their newest
+  `feed_status` minute), not the snapshot's `as_of_minute`. The four ITS feeds report some seconds
+  apart; counting a minute only some had reported would draw a dip at the right edge that isn't
+  real. Minutes after it are published as empty (`missing` = every feed).
+- **`/v1/history` also sends `oldest_minute`** (the first minute in the window that has any
+  `feed_status` row). The web app trims the lead-in before the recording started instead of
+  drawing it as a gap.
+- **The status read runs every tick, not only when the probe moves.** The probe sees only each
+  feed's newest row, so a backfilled older minute would never trip it. The extra query reads the
+  window's `feed_status` through its primary key (`feed = ANY(..)`, 472 rows on the run, 0.09 ms).
+  A row that is new or changed (status or events) makes its minute dirty; the minute's fixes are
+  re-read by `raw_minute` (the earliest raw minute, the consumer's rule), folded in, and the hours
+  they land in are rebuilt. More than 20 dirty minutes reloads the window instead.
+- **Fixes can be stamped up to 30 s past their raw minute's end** (1,954 of 1.1 M rows in the run),
+  so the load and the merge do not clip at the newest minute; they sit in memory and are published
+  when their minute is.
+- **T3 says `failed = 3`; there are four feeds** (`its:conecta`, `maxtrack`, `sonda`, `zirix`), so the
+  test asserts `failed = 4`.
+- **A minute is a gap** (web rule, Part B) when `ok + provider_not_ok = 0`: no feed reported
+  anything. A minute where only some feeds failed is a dip with its `feeds` counts, not a gap.
+
+**Verification** (`go test ./apps/api`, real TimescaleDB, real sample positions)
+
+| | Result |
+|---|---|
+| T1 | every served file validates; 5 bad files (59 minutes, `t = 3600`, `spd = -2`, unknown sampling, columns of different length) are rejected |
+| T2 | hour 13 (the samples' 13:00–13:38 stretch) equals an independent SQL query (`row_number()` window, not the Go fold) on every `(operator, vehicle, line, t) → (lat, lon, spd)` after the rounding; `spd = -1` count equals the null-speed count (five vehicles' speeds are nulled in the test database, because the samples have none in that hour) |
+| T3 | a minute with all four feeds `failed` reads `failed = 4`, 0 vehicles; a never-recorded minute reads `missing = 4`; minutes after the newest read `missing = 4` |
+| T4 | a backfilled minute (the samples again, 1 h earlier) changes only its hour's ETag; the other two hours are byte-identical; the incremental history equals a fresh load byte for byte |
+| T5 | 1,000 history requests run 0 queries; an idle refresh runs only the status read (3 refreshes, 3 queries) and leaves every ETag alone |
+| mutation | reversing the tie rule fails T2 and T4; writing a null speed as 0 fails T2; skipping the dirty-minute merge fails T4 |
+
+**Budgets on `transit_pulse_run`** (118 minutes, 1,098,615 positions in the window; macOS, local):
+
+| | Median of 3 | Budget |
+|---|---|---|
+| start-up load (statuses + stream + fold + encode 3 hours) | 2.76 s (2.99, 2.76, 2.74) | – |
+| peak RSS during the load | 79 MB (80, 79, 79) | < 100 MB |
+| RSS 8 s after the load | 29–72 MB (macOS returns pages lazily) | – |
+| hour 14 (33 min of data) | 427,591 B gzip, 2,583,933 B JSON | ≤ 1.5 MB |
+| hour 15 (a full hour) | 796,754 B gzip, 4,661,550 B JSON | ≤ 1.5 MB |
+| hour 16 (24 min of data) | 360,227 B gzip, 2,137,333 B JSON | ≤ 1.5 MB |
+| merge query for one minute (`raw_minute` + `event_time` bounds), psql `EXPLAIN ANALYZE` | 35 ms (35.3, 35.6, 79.2 cold) | – |
+
+The RSS peak is for 2.4 h of data; a full 3 h is about 1.25× the minutes, so expect the peak near
+100 MB: measure it again in the 128 MB container when the AWS task lands. Two things keep the peak
+down: `GOGC` is set to 20 during the load, and `debug.FreeOSMemory()` runs after it. The merge
+query is a parallel sequential scan of the chunk, as `[VERIFY]` in §2.2 feared: 35 ms on this 1.1 M
+row database, so roughly 0.4 s on a day's chunk of 13 M rows, once a minute.

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -22,8 +23,9 @@ const (
 )
 
 type options struct {
-	interval time.Duration
-	now      func() time.Time
+	interval     time.Duration
+	now          func() time.Time
+	historyHours int
 }
 
 // Server holds the current snapshot. Handlers read it and never touch the database.
@@ -35,8 +37,11 @@ type Server struct {
 	snap    atomic.Pointer[Snapshot]
 	lastErr atomic.Pointer[string]
 
-	mu    sync.Mutex // serialises refresh; guards state
+	mu    sync.Mutex // serialises refresh; guards state and hist
 	state []feedRow  // what the current snapshot was computed from
+	hist  *histState // the time machine's samples; nil until the first load
+
+	view atomic.Pointer[historyView] // what the history handlers serve
 }
 
 func newServer(db querier, lg *slog.Logger, opts options) *Server {
@@ -46,11 +51,16 @@ func newServer(db querier, lg *slog.Logger, opts options) *Server {
 	if opts.now == nil {
 		opts.now = time.Now
 	}
+	if opts.historyHours == 0 {
+		opts.historyHours = defaultHistoryHours
+	}
 	return &Server{db: db, lg: lg, opts: opts}
 }
 
 // refresh probes feed_status and, only when it moved, computes and swaps in a new snapshot. It
-// reports whether it swapped. On any error the previous snapshot stays in place.
+// then brings the history up to date (which also looks at older minutes, because a backfill changes
+// those without moving the probe). It reports whether the snapshot was swapped. On any error the
+// previous snapshot and history stay in place; a failing history never blocks the snapshot.
 func (s *Server) refresh(ctx context.Context) (swapped bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -61,18 +71,23 @@ func (s *Server) refresh(ctx context.Context) (swapped bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if s.state != nil && sameState(state, s.state) {
-		return false, nil
+	var errs []error
+	if s.state == nil || !sameState(state, s.state) {
+		cctx, cancel := context.WithTimeout(ctx, computeTimeout)
+		snap, err := compute(cctx, s.db, state, s.opts.now())
+		cancel()
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			s.snap.Store(snap)
+			s.state = state
+			swapped = true
+		}
 	}
-	cctx, cancel := context.WithTimeout(ctx, computeTimeout)
-	defer cancel()
-	snap, err := compute(cctx, s.db, state, s.opts.now())
-	if err != nil {
-		return false, err
+	if err := s.refreshHistory(ctx, state); err != nil {
+		errs = append(errs, err)
 	}
-	s.snap.Store(snap)
-	s.state = state
-	return true, nil
+	return swapped, errors.Join(errs...)
 }
 
 // Run refreshes until ctx ends. Errors are logged when they start or change, and again when they
@@ -117,6 +132,8 @@ func (s *Server) Run(ctx context.Context) {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/vehicles/latest", s.handleLatest)
+	mux.HandleFunc("GET /v1/history", s.handleHistory)
+	mux.HandleFunc("GET /v1/history/{hour}", s.handleHistoryHour)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	return mux
 }
