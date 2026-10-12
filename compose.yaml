@@ -1,0 +1,67 @@
+name: transit-pulse
+
+# Local infrastructure only. Production (one t4g.small Spot box) gets its own compose file with its own task.
+# Host ports are 29xxx / 5435 so this stack runs next to renewable-pulse (19xxx / 5434).
+
+services:
+  redpanda:
+    # Same tag as RedpandaImage in internal/testharness/harness.go: change both together.
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.4
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:29092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:29092
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --memory 512M
+      - --default-log-level=info
+    ports:
+      - "127.0.0.1:29092:29092" # Kafka API (external listener)
+      - "127.0.0.1:29644:9644" # Admin API
+    volumes:
+      - transit-pulse-redpanda:/var/lib/redpanda/data
+    mem_limit: 700m
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    networks:
+      - transit-pulse
+
+  timescaledb:
+    # Same tag as TimescaleImage in internal/testharness/harness.go: change both together.
+    image: timescale/timescaledb-ha:pg18.6-ts2.30.2
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set it in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set it in .env}
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      # PGDATA in this image is /home/postgres/pgdata/data, so the volume goes on its parent.
+      - transit-pulse-timescaledb:/home/postgres/pgdata
+      # One file, not the directory: the image's own init scripts (000_install_timescaledb.sh,
+      # 001_timescaledb_tune.sh) live in /docker-entrypoint-initdb.d and must keep running.
+      - ./infra/postgres/initdb/001-extensions.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
+    mem_limit: 450m
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - transit-pulse
+
+networks:
+  transit-pulse:
+    name: transit-pulse
+
+volumes:
+  transit-pulse-redpanda:
+    name: transit-pulse-redpanda
+  transit-pulse-timescaledb:
+    name: transit-pulse-timescaledb

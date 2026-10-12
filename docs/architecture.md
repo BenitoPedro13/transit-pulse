@@ -139,8 +139,21 @@ current Spot price in us-east-1 before provisioning]`.
 | **Total** | | **~USD 12** |
 
 **Memory is the risk.** renewable-pulse measured Redpanda at about 730 MiB idle and
-TimescaleDB at about 240 MiB on the same 2 GiB box. PostGIS, a larger write rate and deck.gl
-tiles may not fit `[VERIFY: measure locally once phase 1 runs; the fallback is t4g.medium]`.
+TimescaleDB at about 240 MiB on the same 2 GiB box. This repo's scaffold measured, with
+`scripts/idle-memory.sh` (`docker stats --no-stream` memory, the stack idle ≥ 60 s), both
+containers with the limits they'd have on the box (`--memory 512M` and `mem_limit: 700m` for
+Redpanda, `mem_limit: 450m` for TimescaleDB with PostGIS):
+
+| Container | Idle, median of 3 | Limit |
+|---|---|---|
+| Redpanda v26.2.4 | **149.2 MiB** (210.3 MiB on the first run after creating the volumes) | 700 MiB |
+| TimescaleDB 2.30.2 + PostGIS 3.6 (pg18) | **29.6 MiB** (35.8 MiB on the first run) | 450 MiB |
+
+Measured on the Mac (Docker Desktop, arm64), 2026-10-12, median of 3. `docker stats` on Docker
+Desktop isn't the same measure as renewable-pulse's figures on the box, and these are idle with
+no data. So the numbers don't show that the box has headroom: PostGIS under load, a larger
+write rate and deck.gl tiles may still not fit `[VERIFY: re-measure on the t4g.small, and again
+under load once phase 1 runs; the fallback is t4g.medium]`.
 
 **Raw volume (measured 2026-10-12, a mid-morning public holiday; re-measure in phase 1):**
 

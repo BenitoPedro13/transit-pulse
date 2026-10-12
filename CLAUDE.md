@@ -23,10 +23,13 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): planning, no code yet.** This repo holds docs only.
+**Status (2026-10-12): scaffolded, no adapter yet.** The repo has a Go module, a Next.js
+app, local Redpanda + TimescaleDB/PostGIS and a real-infrastructure test harness
+(`docs/tasks/TASK-scaffold.md`, done). There is no adapter, consumer, API, schema or map yet.
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
 samples are in `docs/research/samples/`. Four questions it raised are open for the user
-(`docs/architecture.md` §10 #9–#12). Read in this order:
+(`docs/architecture.md` §10 #9–#12); the event schema and the first adapter wait on #9 and
+#10. Read in this order:
 
 1. `docs/research/README.md`: the verified source inventory, one row per operator, plus
    measured volumes. Its "Findings that contradict or change the plan" section comes first.
@@ -83,19 +86,21 @@ samples are in `docs/research/samples/`. Four questions it raised are open for t
 
 ### Stack
 
-Nothing is installed. Every row is **planned**; the choices were decided on 2026-10-12
-(`docs/architecture.md` §10). Version numbers are a snapshot, not a pin: check each
-tool's current docs before installing (§2.0).
+The choices were decided on 2026-10-12 (`docs/architecture.md` §10). The scaffold
+(2026-10-12) installed the rows marked **scaffolded**; every other row is **planned**. Version
+numbers are a snapshot, not a pin: check each tool's current docs before installing or
+upgrading (§2.0).
 
 | Layer | Choice | Status |
 |---|---|---|
-| Ingestion | One adapter per provider → canonical event | planned; **Go** (decided) |
-| Broker | Redpanda (Kafka API) on the box, as in renewable-pulse | planned |
+| Ingestion | One adapter per provider → canonical event. Go 1.26 (`go 1.26.0`, `toolchain go1.26.9`; revisit when 1.28 ships, ≈ Feb 2027), one module `github.com/BenitoPedro13/transit-pulse`, binaries in `cmd/*` | planned; **Go** (decided); Go module and lint **scaffolded** (golangci-lint v2.14.0) |
+| Broker | Redpanda v26.2.4 (Kafka API) on the box, as in renewable-pulse; franz-go v1.22.1 client | **scaffolded** (local compose, `make up`) |
 | Stream processing | Plain consumer group + TimescaleDB continuous aggregates | planned (decided) |
-| Store | Postgres + TimescaleDB + PostGIS, same box | planned |
+| Store | Postgres 18 + TimescaleDB 2.30.2 + PostGIS 3.6 (`timescale/timescaledb-ha:pg18.6-ts2.30.2`, arm64), same box; pgx v5.11.0 | **scaffolded** (local compose; no tables yet) |
 | Raw log | S3, compressed files (working copy); durable copy on the user's machine before the account closes | planned |
 | API | Serves precomputed views and live positions | planned; **Go** (decided) |
-| Web | **Next.js** + MapLibre GL + deck.gl; tiles from a Protomaps `.pmtiles` extract on S3 + CloudFront | planned (decided) |
+| Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL + deck.gl and Protomaps `.pmtiles` tiles on S3 + CloudFront come with the map task | Next.js + TanStack Query **scaffolded** (`web/`); map planned (decided) |
+| Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`internal/testharness`); real captures load through `internal/samples` | **scaffolded** |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
 | Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
 | Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |
@@ -215,14 +220,33 @@ When unsure, grep for the thing you changed across these files.
 
 ## 4. Project conventions
 
-A single repo. The layout is decided once the open stack questions close. Today it holds:
+A single repo, one Go module, one standalone pnpm project (`web/`). Today it holds:
 
 ```
-docs/
-  research/     source inventory + samples/ (real captured provider responses)
-  tasks/        task documents (§1)
-  architecture.md
+transit-pulse/
+├── go.mod / go.sum              # module github.com/BenitoPedro13/transit-pulse (one module)
+├── .golangci.yml                # golangci-lint v2 config, default linters
+├── Makefile                     # the only task runner
+├── compose.yaml                 # local infra: redpanda + timescaledb
+├── .env.example                 # every variable the scaffold reads
+├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
+├── internal/
+│   ├── testharness/             # testcontainers-go: real Redpanda and TimescaleDB for tests
+│   └── samples/                 # loads docs/research/samples/<name> for parser tests
+├── schemas/                     # JSON Schema contracts; empty until the canonical-event task
+├── scripts/idle-memory.sh       # median-of-3 idle memory per container
+├── web/                         # create-next-app output + TanStack Query provider
+│   ├── app/                     # layout.tsx, providers.tsx, get-query-client.ts
+│   └── hooks/                   # every custom hook lives here
+└── docs/
+    research/                    # source inventory + samples/ (real captured provider responses)
+    tasks/                       # task documents (§1)
+    architecture.md
 ```
+
+Each binary arrives with its task as `cmd/<name>/main.go`. Make targets: `up`, `down`, `test`,
+`lint`, `fmt`, `web-dev`, `web-build`. No target runs `down -v`: deleting volumes is the
+user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed
   GTFS zip). Large files stay out (see `.gitignore`); record their source URL and capture

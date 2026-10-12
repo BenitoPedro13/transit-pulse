@@ -1,9 +1,10 @@
 # TASK: Scaffold the repo — Go module, Next.js app, local infrastructure, test harness
 
-**Status (2026-10-12): planned, awaiting review.** Written by the planner; implemented by a
-different model. Every command, path and number below is meant to be followed literally. If
-something here turns out to be wrong against the live docs, **stop and ask** (§2.9). Don't
-improvise around it.
+**Status (2026-10-12): done.** A1–A13 pass; the measured numbers and every deviation are in
+§6. Written by the planner; implemented by a different model. Every command, path and number
+below is meant to be followed literally. If something here turns out to be wrong against the
+live docs, **stop and ask** (§2.9). Don't improvise around it. Where the implementation
+differs from the text below, §6 "Deviations" says how, and the text has been updated to match.
 
 ## 1. Current scenario
 
@@ -106,7 +107,7 @@ re-checks each against the linked source and uses the current stable.
 | Tool | Observed 2026-10-12 | Source to re-check | Notes |
 |---|---|---|---|
 | Go | **1.26.x, latest patch** (1.26.9 on 2026-10-08). Not 1.27 | <https://go.dev/doc/devel/release> | see "Go version" below |
-| golangci-lint | v2.14.0 (2026-09-24), config format v2 | <https://golangci-lint.run/docs/welcome/install/local/> | install the binary (`brew install golangci-lint`, the page recommends binary installs; `go install` is listed as unsupported) |
+| golangci-lint | v2.14.0 (2026-09-24), config format v2 | <https://golangci-lint.run/docs/welcome/install/local/> | install the prebuilt binary with the official install script (`curl -sSfL https://golangci-lint.run/install.sh \| sh -s -- -b "$HOME/.local/bin" v2.14.0`). **Not `brew install`:** the formula requires `go` and would upgrade the global Homebrew Go (user decision, 2026-10-12). `go install` is listed as not guaranteed to work |
 | Node.js | 24 LTS "Krypton", latest v24.21.0 | <https://nodejs.org/dist/index.json> | local v24.19.0 is the same LTS major, so it's fine |
 | pnpm | pnpm 12 is the current line | <https://pnpm.io/installation> | use what `create-next-app --use-pnpm` pins; if local pnpm < 12, `pnpm self-update` |
 | Next.js | 16.4.0 (docs page `lastUpdated` 2026-09-29) | <https://nextjs.org/docs/app/api-reference/cli/create-next-app> | via `create-next-app`, never hand-written |
@@ -261,10 +262,12 @@ doesn't have. It can come back later behind a Compose profile if a task justifie
 - **timescaledb:**
   - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` from `.env`, written as
     `${POSTGRES_PASSWORD:?set it in .env}` so a missing value fails loudly.
-  - Mounts `./infra/postgres/initdb` read-only at the image's init-script directory.
-    `[VERIFY: init-script directory and PGDATA path for timescaledb-ha — the README/
-    Dockerfile at https://github.com/timescale/timescaledb-docker-ha; the volume must be
-    mounted at the actual data directory or data won't survive "make down && make up"]`
+  - Mounts the single file `./infra/postgres/initdb/001-extensions.sql` read-only into the
+    image's init-script directory `/docker-entrypoint-initdb.d/`. **Not the whole directory:**
+    the image keeps its own scripts there (`000_install_timescaledb.sh`,
+    `001_timescaledb_tune.sh`, `010_install_timescaledb_toolkit.sh`), and a directory mount
+    would hide them (§6 D2). PGDATA is `/home/postgres/pgdata/data`, so the named volume is
+    mounted on its parent `/home/postgres/pgdata`.
   - Port: `127.0.0.1:5435:5432` (renewable-pulse uses 5434).
   - `mem_limit: 450m` (renewable-pulse's production limit).
   - Health check: `pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"`, `interval: 2s`,
@@ -300,7 +303,7 @@ usable):
 |---|---|---|
 | `.env` (file target) | `cp .env.example .env` | only if `.env` doesn't exist; `up` depends on it |
 | `up` | `docker compose up -d --wait` | `--wait` blocks until health checks pass. `[VERIFY: --wait and --wait-timeout flags, at https://docs.docker.com/reference/cli/docker/compose/up/]`; use `--wait-timeout 120` |
-| `down` | `docker compose down` | keeps volumes. **No target runs `down -v`**: deleting volumes is the user's call |
+| `down` | `docker compose down` | depends on `.env` too (compose interpolates `${…:?}` even for `down`, so a fresh clone would fail without it). Keeps volumes. **No target runs `down -v`**: deleting volumes is the user's call |
 | `test` | `go test -count=1 ./...` | `-count=1` so the integration test isn't served from cache; needs Docker running |
 | `lint` | `test -z "$$(gofmt -l $$(go list -f '{{.Dir}}' ./...))"`, `go vet ./...`, `golangci-lint run ./...`, `pnpm --dir web lint` | fails on any gofmt diff |
 | `fmt` | `gofmt -w $$(go list -f '{{.Dir}}' ./...)` | Go only; `go list` keeps it out of `web/` |
@@ -447,8 +450,11 @@ covers; if the fix needs a decision this document doesn't make, stop and ask.
    from the `toolchain` line written in step 4.
    *Verify (after step 4):* `go version` run inside the repo prints `go1.26.9` (or the
    latest 1.26.x patch); run in renewable-pulse it still prints `go1.26.6`.
-3. **golangci-lint.** `brew install golangci-lint` (or upgrade).
-   *Verify:* `golangci-lint version` shows v2.x.
+3. **golangci-lint.** Install the prebuilt v2.14.0 binary with the official script (not
+   `brew install`, which would upgrade the global Go): `curl -sSfL
+   https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin" v2.14.0`. Check
+   `~/.local/bin` is on `PATH`.
+   *Verify:* `golangci-lint version` shows v2.14.0.
 4. **Go module.** `go mod init github.com/BenitoPedro13/transit-pulse`, then
    `go mod edit -go=1.26 -toolchain=go1.26.9` (or the latest 1.26.x patch), then add
    `ignore ./web` to `go.mod`; write `.golangci.yml`.
@@ -575,5 +581,132 @@ metric use.
 
 ## 6. Outcome
 
-*(Filled in by the implementer: versions actually used, the three runs of A1/A2/A3, every
-resolved `[VERIFY]` with its source link, and any deviation from this plan.)*
+Implemented 2026-10-12 on the Mac (Apple M2, 8 GiB, Docker Desktop 29.7.2 arm64, Compose
+v5.3.1). A1–A13 pass.
+
+### Versions used
+
+Everything in §2.2 re-checked against its source on 2026-10-12. Only the differences from the
+plan are listed after the table.
+
+| Tool | Used |
+|---|---|
+| Go | 1.26.9 toolchain (`go 1.26.0`, `toolchain go1.26.9`, `ignore ./web`); global Homebrew Go untouched, still 1.26.6 (renewable-pulse prints `go1.26.6`) |
+| golangci-lint | v2.14.0 prebuilt binary in `~/.local/bin` (built with go1.27.0; lints the go 1.26 module without problems) |
+| Node / pnpm | Node v24.19.0 (24 LTS; latest v24.21.0, same major), pnpm 11.21.0 (pinned in `web/package.json` by `create-next-app`) |
+| Next.js / React | 16.4.0 / 19.3.0, Cache Components on, React Compiler off |
+| TanStack Query | `@tanstack/react-query` 5.104.1 |
+| testcontainers-go | v0.44.0 (core + `modules/redpanda` + `modules/postgres`) |
+| franz-go / pgx | v1.22.1 (latest tag; the releases API has none) / v5.11.0 |
+| Images | `docker.redpanda.com/redpandadata/redpanda:v26.2.4`, `timescale/timescaledb-ha:pg18.6-ts2.30.2`: both have a `linux/arm64` manifest (`docker buildx imagetools inspect`); PostGIS 3.6, TimescaleDB 2.30.2 |
+
+Differences from the plan's observations: none in versions, except that pnpm 12 is the current
+line (pnpm.io/installation) and 11.21.0 was used (D5), and `go.mod` says `go 1.26.0` (D4).
+
+### Measured results
+
+**A1** `make down && time make up`, images cached, volumes kept: **4.42 s, 4.85 s, 4.70 s;
+median 4.70 s** (limit 60 s). Exit 0 each time; `redpanda` and `timescaledb` both `healthy`. The
+very first `make up` that created the volumes took 4.49 s.
+
+**A2** `scripts/idle-memory.sh`, stack idle > 60 s, 3 samples 10 s apart (MiB):
+
+| Run | Container | Samples | Median | Limit |
+|---|---|---|---|---|
+| after A1 | redpanda | 149.2, 148.8, 149.2 | **149.2** | 700 |
+| after A1 | timescaledb | 29.8, 29.6, 29.6 | **29.6** | 450 |
+| first run, right after creating the volumes (earlier in the session) | redpanda | 210.4, 210.1, 210.3 | 210.3 | 700 |
+| first run | timescaledb | 35.8, 35.7, 35.9 | 35.8 | 450 |
+
+`OOMKilled` is `false` for both. `docker inspect` shows the limits applied (734003200 B = 700
+MiB, 471859200 B = 450 MiB). The Postgres image's `timescaledb-tune` read the cgroup limit
+(`shared_buffers` = 112.5 MB). `docker stats` on Docker Desktop is not the same measure as
+renewable-pulse's figures on the box, so these don't prove headroom on the t4g.small
+(`docs/architecture.md` §6 keeps the `[VERIFY]`).
+
+**A3** `time make test` (`go test -count=1 ./...`): **10.33 s, 23.53 s, 15.00 s; median 15.00
+s** (limit 120 s). Exit 0; `go test -v ./...` run three times shows 0 failures and 0 `SKIP`.
+Produce→consume in `TestSmoke`: 574 ms, 561 ms, 566 ms (limit 10 s, enforced by the test's
+timeout). The spread of `make test` comes from container start time (Redpanda ≈ 2.7 s,
+TimescaleDB ≈ 5.6 s in the `-v` run).
+
+**A4** `make lint`: exit 0; gofmt prints nothing, `go vet` clean, golangci-lint `0 issues.`
+(with `web/node_modules` present), ESLint no output (0 errors, 0 warnings).
+**A5** `make web-build`: exit 0 (Next.js 16.4.0 Turbopack, `/` and `/_not-found` static).
+**A6** `make web-dev` + `curl`: `200`.
+**A7** `postgis_version()` = `3.6 USE_GEOS=1 USE_PROJ=1 USE_STATS=1`, `extversion` = `2.30.2`, one row.
+**A8** `rpk topic create scaffold.check` and `delete`: both exit 0.
+**A9** `persist_check` survived `make down && make up`; then dropped.
+**A10** `lsof`: `127.0.0.1:29092`, `127.0.0.1:29644`, `127.0.0.1:5435`; none on `*`.
+**A11** the same two tags in `compose.yaml` and `internal/testharness/harness.go`.
+**A12** `go list ./...` lists only `internal/samples` and `internal/testharness`; `go list -m all | wc -l` = 93.
+**A13** `git status --porcelain` clean after the commit; `git ls-files | grep -E
+'node_modules|\.next/|^\.env$'` prints nothing (checked after committing).
+
+### Resolved `[VERIFY]`s
+
+| `[VERIFY]` | Result and source |
+|---|---|
+| Go `toolchain` directive | The `toolchain` line takes precedence over `go`; with `GOTOOLCHAIN=auto` a newer toolchain is downloaded and cached, `go: downloading go1.26.9` observed. <https://go.dev/doc/toolchain>. The page prefers `go get toolchain@…`; `go mod edit -toolchain=` also exists (`go help mod edit`) and was used as written |
+| Go 1.26.9 / 1.27 | go1.26.9 (2026-10-08) is the latest 1.26 patch; 1.27.0 is current stable; 1.26 is supported until 1.28 ships. <https://go.dev/doc/devel/release> |
+| golangci-lint minimal v2 config | `version` ("the only possible value is "2"") and `run.timeout` are documented keys. The page doesn't say a two-key file is valid, but `golangci-lint run` accepted it. <https://golangci-lint.run/docs/configuration/file/> |
+| golangci-lint honours `ignore ./web` | Yes: `make lint` gives `0 issues.` with `web/node_modules` present (A4, A12) |
+| `create-next-app` flags | All flags exist (`--no-src-dir` and `--no-react-compiler` via the documented `--no-*` negation); no prompt appeared. <https://nextjs.org/docs/app/api-reference/cli/create-next-app> (Next.js 16.4.0, `lastUpdated` 2026-09-29) |
+| Build with Cache Components + client `QueryClientProvider` in the root layout | `pnpm build` succeeds (A5) |
+| TanStack dual-client pattern | <https://tanstack.com/query/latest/docs/framework/react/guides/advanced-ssr>: "Initial setup" puts both functions in `providers.tsx`; the separate `get-query-client.ts` is the guide's later streaming section. `environmentManager.isServer()` is the check used. Provider calls `getQueryClient()`, not `useState` |
+| Image arm64 | both tags have `linux/arm64` manifests (`docker buildx imagetools inspect`) and Docker Hub lists amd64 + arm64 |
+| `-ha` image has PostGIS | The README says "the Docker image contains many extensions, including TimescaleDB and PostGIS" (<https://github.com/timescale/timescaledb-docker-ha>); `postgis.control` is in the arm64 image; A7 shows `postgis_version()` 3.6 |
+| What `-oss` drops | The README only says `-oss` builds exclude "Timescale License code" and doesn't list features. Neither `-oss` nor `-all` is used, so nothing depends on it |
+| Postgres 18 supported | TimescaleDB 2.30.x supports PostgreSQL 16, 17 and 18. <https://www.tigerdata.com/docs/self-hosted/latest/upgrades/upgrade-pg> (the old docs.timescale.com URL redirects here) |
+| Init-script dir and PGDATA of the `-ha` image | `/docker-entrypoint-initdb.d` and `PGDATA=/home/postgres/pgdata/data`, user `postgres`: the Dockerfile (<https://github.com/timescale/timescaledb-docker-ha>) and `docker image inspect`. The README doesn't say |
+| Redpanda `--memory` under `--mode dev-container` | **The linked rpk page doesn't resolve it:** <https://docs.redpanda.com/current/reference/rpk/rpk-redpanda/rpk-redpanda-start/> lists neither `--memory`, `--smp` nor `--default-log-level` (dev-container bundles `--reserve-memory 0M`). Asked the user, who decided: keep `--memory 512M`. Sources used instead: the v26.2.4 binary's own `--help` (`-m [ --memory ]  memory to use, in bytes (default: all)`; `--reserve-memory`: "memory reserved to OS (if --memory not specified)") and renewable-pulse's `infra/aws/compose.prod.yml`, which runs `--smp 1 --memory 512M` under `mem_limit: 700m` in production. The quickstart (<https://docs.redpanda.com/current/get-started/quick-start/>) uses `--smp 1 --default-log-level=info`. A2 is the real check: 149–210 MiB, no OOM kill |
+| `mem_limit` honoured | Compose spec attribute (<https://docs.docker.com/reference/compose-file/services/#mem_limit>); `docker inspect` shows the limits applied |
+| `--wait`, `--wait-timeout` | `--wait` waits for running/healthy and implies detached; `--wait-timeout` is in seconds. <https://docs.docker.com/reference/cli/docker/compose/up/> |
+| testcontainers postgres module | `postgres.Run`, `WithDatabase/WithUsername/WithPassword`, `WithInitScripts`, log wait with `WithOccurrence(2)` + `ForListeningPort("5432/tcp")`, `ConnectionString(ctx, "sslmode=disable")`, snapshot warning about the database name `postgres`. <https://golang.testcontainers.org/modules/postgres/> |
+| The `-ha` image logs the ready line twice | Yes: 2 occurrences in `docker compose logs` on first start, and the testcontainers wait strategy passes |
+| testcontainers redpanda module | `redpanda.Run`, `WithAutoCreateTopics`, `KafkaSeedBroker`. <https://golang.testcontainers.org/modules/redpanda/> |
+| kgo option names | `SeedBrokers`, `AllowAutoTopicCreation`, `ConsumeTopics`, `ConsumeResetOffset`, `NewOffset().AtStart()`, `ProduceSync`, `PollFetches` exist at v1.22.1 (<https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo>); `Record` fields from `pkg/kgo/record_and_fetch.go` at tag v1.22.1 |
+| franz-go latest tag | v1.22.1 (`gh api repos/twmb/franz-go/tags`) |
+
+### Deviations
+
+- **D1: golangci-lint install (user decision).** `brew install golangci-lint` would have
+  upgraded the global Homebrew `go` (it is a required dependency: `brew install --dry-run`
+  said "Would upgrade 1 dependency: go", even with `HOMEBREW_NO_INSTALL_UPGRADE=1`). Installed
+  the prebuilt v2.14.0 with the official script instead; §2.2, §2.9 step 3 and the README now
+  say so.
+- **D2: init script mount.** §2.3 said to mount `./infra/postgres/initdb` over the image's
+  init-script directory. That would hide the image's own `000_install_timescaledb.sh`,
+  `001_timescaledb_tune.sh` and `010_install_timescaledb_toolkit.sh`, so `compose.yaml` mounts
+  only `001-extensions.sql`. The testcontainers `WithInitScripts` copies files individually, so
+  the harness already behaved this way.
+- **D3: `make down` depends on `.env`**, like `up` (§2.4), because compose interpolates the
+  `${…:?}` variables for `down` as well.
+- **D4: `go 1.26.0`, not `go 1.26`.** `go get` normalised the line (a dependency's minimum).
+  Still 1.26, still `toolchain go1.26.9`, not 1.27.
+- **D5: pnpm stayed at 11.21.0.** §2.2 says to `pnpm self-update` when local pnpm is below 12.
+  The permission system denied that command, so it wasn't retried or worked around. Nothing
+  needed 12: `create-next-app` ran without prompts and pinned `"packageManager": "pnpm@11.21.0"`
+  in `web/package.json`. Upgrading pnpm is left to the user.
+- **D6: `get-query-client.ts` has `staleTime` only.** The guide's standalone version also
+  configures `dehydrate` for streaming prefetch, which nothing here uses (§2.2 names only
+  `staleTime`).
+- **D7: cleanup call.** The harness uses `testcontainers.CleanupContainer(t, ctr)` (documented
+  on the postgres module page; safe when `Run` failed) rather than `TerminateContainer`.
+- **D8: explicit names.** The compose network and volumes have `name:` set so they are exactly
+  `transit-pulse`, `transit-pulse-redpanda` and `transit-pulse-timescaledb`, as §2.3 says.
+- **D9: the timescaledb volume is mounted on `/home/postgres/pgdata`**, the parent of PGDATA,
+  so the image's directory ownership is copied into the new volume.
+
+### Things the generator produced that §2.2 didn't mention
+
+`create-next-app` generated `web/AGENTS.md`, `web/README.md`, `web/eslint.config.mjs`,
+`web/pnpm-workspace.yaml` (pnpm 11's settings file: `allowBuilds: sharp: false,
+unrs-resolver: false`; it declares no workspace packages) and `partialPrefetching: true` in
+`next.config.ts`. They were left as generated. pnpm printed `eslint@9.39.5 deprecated` for the
+generator's own devDependency; it is not a peer-dependency warning. Not touched.
+
+### Not done here
+
+No CI (§2.7), no `cmd/*`, no schema, no table, nothing fetched from any provider. Open: the
+architecture §10 #9–#12 questions, which block the follow-up tasks in §5.
