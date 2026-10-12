@@ -1,8 +1,8 @@
 # UX direction: from "every bus at once" to something a rider uses
 
-> Written 2026-10-12, after the first screen (`TASK-live-map.md`) shipped. This is research and a
-> proposal. **Nothing here is decided until the user picks the options in §7.** The chosen
-> direction becomes task documents. It replaces the phase 1 deliverable "delays by line"
+> Written 2026-10-12, after the first screen (`TASK-live-map.md`) shipped. **Decided 2026-10-12**
+> (the user took every recommendation in §7). The tasks are `TASK-ui-lines.md` (U0, web only, on
+> today's data) and `TASK-line-page.md` (U1). It replaces the phase 1 deliverable "delays by line"
 > (architecture §4), which was never specified as a screen.
 
 ## 1. What the current screen answers
@@ -185,7 +185,7 @@ Each item is its own task document. Every step puts something new on screen.
 | Ticketing, crowdsourced reports, push notifications | outside a data case study, and they need accounts or a backend write path |
 | ETA predictions as the headline | already covered in Rio, and against the "observed first" stance |
 
-## 7. Decisions for the user
+## 7. Decisions (user, 2026-10-12: "i trust ur opinions"; every recommendation taken)
 
 1. **Angle:**
    - (a) **both: a rider tool + accountability, with the line page as the hub** *(recommended)*;
@@ -200,3 +200,8 @@ Each item is its own task document. Every step puts something new on screen.
    - (b) the AWS task first, then U1.
 5. **Email SMTR** (`infra.smtr@prefeitura.rio`) for the current GTFS (architecture §10 #12). The
    promise side of U3 depends on it. Recommended: yes, now.
+
+**Outcome:** 1 (a), 2 (a), 3 yes, 4 (a), 5 yes. Before U1, a web-only step was added at the
+user's request: **U0, `TASK-ui-lines.md`**. It reorganises today's snapshot around lines (search,
+`/linha/[line]`, `/rede`), goes mobile-first and fixes the dark-mode contrast failure seen in the
+first screenshot, so the screen improves before any new foundation lands.
