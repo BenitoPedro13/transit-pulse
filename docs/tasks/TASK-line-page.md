@@ -1,3 +1,8 @@
+> **DEFERRED (2026-10-12), not planned.** The user reframed the goal the same day: a learning
+> project and a beautiful dashboard people can play with, not a rider tool (`docs/research/ux-direction.md`).
+> Kept for history. Drawing a line's GTFS route on the map is D3 there, without the direction
+> inference or the headway promise.
+
 # TASK-line-page (U1)
 
 > Written 2026-10-12. The second step of `docs/research/ux-direction.md` (decisions recorded in its
