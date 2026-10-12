@@ -39,7 +39,7 @@ builds on), then this document.
     the first copy. Whether its position or speed can also differ is not measured yet
     (§2.4, §6 step 1).
   - **Arrival order is not minute order.** After a restart the adapter publishes the newest
-    minute first, then the backlog oldest-first (E8). A rebuild from the raw log reads in
+    minute first, then the backlog oldest-first (adapter task E8). A rebuild from the raw log reads in
     minute order.
   - Volume: 1,099,188 distinct identities in 118 minutes, which is **9,315 rows/min, about
     13.4 M rows/day** after de-duplication. During the run the adapter published about 174
@@ -321,7 +321,8 @@ Each one is recorded in §7 with numbers. Timings are medians of 3 runs.
   - `make rebuild` over 14:27–16:24 into an empty database writes **1,099,188** position rows
     (the distinct identities measured in the adapter task) and **472** `feed_status` rows
     (118 × 4), all `ok`.
-  - **Throughput:** rows written per second, median of 3 runs on a fresh database each time:
+  - **Throughput:** rows written per second, median of 3 runs on a fresh database each time
+    (each run is ~4 min at the target rate):
     **≥ 5,000 rows/s** on the Mac. At that rate a 23 h backlog (≈ 12.9 M rows) drains in
     ≤ 43 min. Re-measure on the t4g.small in the AWS task.
   - **Footprint:** report bytes/row as `hypertable_size('positions')` / rows (table plus
@@ -332,18 +333,18 @@ Each one is recorded in §7 with numbers. Timings are medians of 3 runs.
       compression with the `ON CONFLICT` caveat, shorter retention, or a bigger volume.
   - Run `rebuild` a second time into the same database: the checksum is unchanged (E2 on real
     data).
-- **E8 Live, 30 consecutive minutes:** `make up`, `make adapter-its` and `make consumer` on a
-  fresh database.
-  - Per-batch `oldest_record_age_ms`: **p95 ≤ 5 s** in steady state, computed from the
-    consumer's JSON log lines with `jq`. "Steady state" means the batches logged after the
-    adapter logs its first live minute. Batches during the adapter's start-up backfill are
-    reported separately.
-  - Consumer RSS: median of 3 samples 10 min apart **≤ 100 MiB**.
-  - TimescaleDB container memory (`docker stats`): median of 3 samples **below its 450 MiB
-    `mem_limit`, with no OOM kill** (`docker inspect` `OOMKilled=false`). Redpanda is reported
-    the same way.
-  - Afterwards, `make rebuild` over the same minutes into a second database. Rows whose
-    `raw_minute` is in that range are **equal on every column** (E4 on live data).
+- **E8 Live smoke check, 5 minutes:** `make up`, `make adapter-its` and `make consumer` on a
+  fresh database. Stop when 5 live minutes are in.
+  - Every live minute has its position rows and 4 `feed_status` rows.
+  - Then `make rebuild` over the same minutes into a second database. Rows whose `raw_minute`
+    is in that range are **equal on every column** (E4 on live data).
+  - The consumer's `oldest_record_age_ms` and RSS are recorded as observed. They're **not
+    pass/fail here.**
+  - **Deferred to the AWS infra task (user, 2026-10-12):** the sustained live run, with p95
+    `oldest_record_age_ms` ≤ 5 s over 30 minutes, consumer RSS ≤ 100 MiB, and TimescaleDB and
+    Redpanda memory below their limits with no OOM kill. Those limits are about the 2 GiB
+    t4g.small, so they're measured there, not on the Mac. The user wants something on screen
+    sooner, and a long local run doesn't answer the box question anyway.
 - **E9** `make lint` reports 0 issues. `make test` exits 0 with 0 skipped, and its runtime is
   the median of 3 runs.
 - **E10** The docs in §4 are updated. `grep -n "\[VERIFY" docs/tasks/TASK-positions-consumer.md`
@@ -365,7 +366,7 @@ Each one is recorded in §7 with numbers. Timings are medians of 3 runs.
 3. `packages/store`: migrations and writes (E1, store-level E3).
 4. `apps/rebuild` (E7 offline: footprint and throughput, the stop rule).
 5. `apps/consumer` (E2, E4, E5, E6).
-6. Live run E8, about 40 min with the start-up.
+6. Live smoke check E8, about 10 min with the start-up.
 7. Docs (§4), §7, lint, tests, commit.
 
 ## 7. Results

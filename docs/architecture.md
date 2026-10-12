@@ -176,7 +176,9 @@ Measured on the Mac (Docker Desktop, arm64), 2026-10-12, median of 3. `docker st
 Desktop isn't the same measure as renewable-pulse's figures on the box, and these are idle with
 no data. So the numbers don't show that the box has headroom: PostGIS under load, a larger
 write rate and deck.gl tiles may still not fit `[VERIFY: re-measure on the t4g.small, and again
-under load once phase 1 runs; the fallback is t4g.medium]`.
+under load once phase 1 runs; the fallback is t4g.medium]`. The consumer's sustained live run (30 min: lag, RSS,
+TimescaleDB/Redpanda memory) was moved to the AWS infra task for this reason
+(`docs/tasks/TASK-positions-consumer.md` E8).
 
 **Raw volume (measured 2026-10-12, a mid-morning public holiday; re-measure in phase 1):**
 
