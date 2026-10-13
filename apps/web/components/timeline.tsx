@@ -14,7 +14,7 @@ import TimelineChart, { chartMaxLabel } from "./timeline-chart";
 
 // The time machine's controls (docs/tasks/TASK-time-machine.md §2.5): play, speed, "Só posições reais",
 // the way back to live, and a scrubber laid over a chart of vehicles per minute. On a phone it is the top
-// row of the bottom panel (play, scrubber, AO VIVO); expanding the panel adds the rest.
+// controls row of the bottom panel (play, scrubber, AO VIVO); expanding the panel adds the rest.
 export default function Timeline({ expanded, className = "" }: { expanded: boolean; className?: string }) {
   const c = usePlaybackControls();
   const reduced = useReducedMotion();
@@ -38,7 +38,7 @@ export default function Timeline({ expanded, className = "" }: { expanded: boole
     <section
       aria-label="Linha do tempo"
       data-expanded={expanded}
-      className={`group/tl pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-2 text-calcadao lg:rounded-xl lg:border lg:border-borda lg:bg-morro lg:p-3 lg:shadow-lg ${className}`}
+      className={`group/tl pointer-events-auto flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 text-calcadao lg:rounded-xl lg:border lg:border-borda lg:bg-morro lg:p-3 lg:shadow-lg ${className}`}
     >
       <Button
         variant="outline"
@@ -106,6 +106,12 @@ export default function Timeline({ expanded, className = "" }: { expanded: boole
         {live ? <span aria-hidden="true">● </span> : null}AO VIVO
       </Button>
 
+      {!live && !expanded && (
+        <p className="order-4 basis-full text-xs text-neblina lg:hidden">
+          {c.smoothing ? "Movimento suavizado entre posições reais" : "Só posições reais · 1 por minuto por ônibus"}
+        </p>
+      )}
+
       {/* The track: on a phone it sits between play and AO VIVO; on a desktop, and on an expanded phone, it
           takes a row of its own. */}
       <div className="order-2 min-w-0 max-lg:flex-1 max-lg:group-data-[expanded=true]/tl:order-20 max-lg:group-data-[expanded=true]/tl:basis-full lg:order-20 lg:basis-full">
@@ -124,7 +130,7 @@ export default function Timeline({ expanded, className = "" }: { expanded: boole
                 thumbProps={{
                   "aria-label": "Minuto da reprodução",
                   "aria-valuetext": valueText,
-                  className: "h-full w-1.5 rounded-sm border-calcadao bg-calcadao",
+                  className: "h-8 w-1.5 rounded-sm border-calcadao bg-calcadao max-lg:group-data-[expanded=true]/tl:h-10 lg:h-10",
                 }}
               />
             </div>

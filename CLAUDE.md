@@ -39,7 +39,7 @@ request never queries), the Rio basemap (`make tiles`), vehicles on MapLibre + d
 Table list, and a status strip that tells live, stale and failed apart; measurements in its §7. `docs/tasks/TASK-dashboard.md` (D1) is
 done: the screen became a full-bleed dashboard with the letreiro identity, line and bus selection,
 speed colours and the view in the URL; its results (contrast table, axe, fps) are in its §6. The time
-machine (D2, `docs/tasks/TASK-time-machine.md`) is built (the `history-hour.v1` API and the timeline, playback and trails on screen); its on-screen checks (T6, T8–T11) are still to run. Of the four questions the inventory raised
+machine (D2, `docs/tasks/TASK-time-machine.md`) is built and browser-verified (2026-10-13): the `history-hour.v1` API, timeline, playback and trails pass T6 and T8–T11. The mobile panel has a labelled Expandir/Recolher control above the timeline; initial history loading waits for all requested hours to settle before clamping a shared minute. Of the four questions the inventory raised
 (`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
 the identity; ITS API only). #11 and #12 are still open. Read in this order:
 

@@ -1,0 +1,17 @@
+{
+  "sharedMinute": {
+    "delayedHours": [
+      "15",
+      "16"
+    ],
+    "delayMs": 2500,
+    "sign": "REPLAY 12:11 · 2.086 ÔNIBUS",
+    "url": "http://127.0.0.1:3000/?t=2026-10-12T15:11Z"
+  },
+  "touch": {
+    "viewport": "390x844",
+    "collapseAfterScroll": true,
+    "collapseAfterSelection": true,
+    "controlHeight": 44
+  }
+}

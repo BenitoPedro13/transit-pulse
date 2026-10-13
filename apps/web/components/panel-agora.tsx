@@ -57,7 +57,7 @@ export default function PanelAgora({ stats, snapshot, replay, onSelectLine }: Pr
                 onClick={() => onSelectLine(l.line)}
                 className="rounded-md border border-border bg-card px-2.5 py-1 text-sm hover:bg-accent"
               >
-                <span className="font-semibold">{l.line}</span> <span className="text-neblina">· {l.count}</span>
+                <span className="font-semibold">{l.line}</span> <span>· {l.count}</span>
               </button>
             </li>
           ))}

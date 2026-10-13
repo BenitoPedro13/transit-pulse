@@ -1,5 +1,27 @@
 # TASK-time-machine (D2)
 
+> Validation follow-up (2026-10-13): run T6 and T8–T11 in Chromium against the
+> existing `transit_pulse_run` recording and the real local API. Inspect desktop and
+> phone layouts in both schemes, capture screenshots, check axe and keyboard/reduced
+> motion behavior, and measure playback and frame rate. Fix defects in the existing
+> playback hooks/components, adding targeted regression tests where behavior changes.
+> Store browser evidence under `docs/tasks/assets/` and record measured results in §6;
+> update README and CLAUDE.md only after the remaining checks are resolved. Re-run
+> `make lint`, `make test`, and `make web-build`. No deployment is part of this follow-up.
+>
+> Mobile correction requested during validation: keep a clearly labelled Expandir/Recolher
+> control above the timeline, outside the scrolling tab content, with a 44 px touch target.
+> Validate collapsing Linhas after opening, scrolling, searching and selecting a line.
+>
+> Additional defect reproduced with delayed real hour responses: opening `?t=2026-10-12T15:11Z`
+> while only hour 14 has loaded clamps the playhead and rewrites the link to `14:59Z`.
+> `hooks/use-history.ts` must wait until every requested hour has either data or an error
+> before publishing the initial window. Add pure query-result regression tests with the
+> real hour fixtures; recheck the delayed-response scenario in Chromium. Settled errors
+> continue to allow available files, preserving gaps for missing hours.
+> Preserve the browser measurement scripts and rerun instructions in
+> `docs/research/runs/20261013-time-machine/` without adding runtime dependencies.
+
 > Written 2026-10-12. The second step of `docs/research/ux-direction.md` §3.2. **Prerequisite:
 > `TASK-dashboard.md` (D1) is done.**
 >
@@ -353,8 +375,9 @@ row database, so roughly 0.4 s on a day's chunk of 13 M rows, once a minute.
 
 ### Part B: screen
 
-Built 2026-10-12 (second session, after the usage-limit stop). **The on-screen checks T6 and T8–T11 are not done: the browser
-extension was not connected, so nothing here has been looked at in a browser.** What was verified without one is below.
+Built 2026-10-12 (second session, after the usage-limit stop). At the end of that session,
+T6 and T8–T11 had not run because the browser extension was disconnected. **Browser
+verification completed on 2026-10-13**, recorded below; the original build results follow.
 
 **Files.** New: `hooks/history-window.ts` (the pure rules), `store/playback.ts` + `store/playback-context.ts`,
 `hooks/use-history.ts`, `hooks/use-playback.ts`, `components/playback-provider.tsx`, `playback-clock.tsx`, `playback-url-sync.tsx`,
@@ -404,8 +427,58 @@ snapshot or the minute under the playhead), `dashboard-url.ts` (`t`), `app/page.
 | cost | on the full recorded run (3 hour files, 267,217 fixes, 4,459 vehicles, 11,680 paths, 118 minutes, 0 gaps): building the window 27 ms (median of 3); the rows at one playhead 1.4 ms (median of 300 frames, ≈ 2,650 vehicles) |
 | lint, types, build | `pnpm lint`, `tsc --noEmit`, `make web-build` pass; all 93 web tests pass |
 
-**Still to do (needs a browser):** T6 on screen (play at 60× from the start, ≈ 118 ± 5 s, switches to live by itself), T8 (a trail
+**Checks deferred by the build session (completed below):** T6 on screen (play at 60× from the start, ≈ 118 ± 5 s, switches to live by itself), T8 (a trail
 breaks at a gap; the smoothing label is visible; "Só posições reais" shows heads only at real fixes; REPLAY in the sign and the strip in
 every replay state), T9 (axe in both schemes, keyboard scrub ±1 / ±10 / Home / End, Space on play, reduced motion), T10 (≥ 30 fps at 60×
 with trails, median of 3 runs of 10 s; a scrub to another hour within 1 s), T11 (screenshots at 1440 × 900 and 390 × 844, dark and
 light, playing and paused, in `docs/tasks/assets/time-machine-*.png`), and the layout offsets above.
+
+### Part B: browser verification, completed 2026-10-13
+
+**D2 is complete.** Chromium, Playwright 1.62.1, axe-core 4.13.0, real
+`transit_pulse_run` database and local PMTiles; Apple M2 hardware GPU
+(`ANGLE Metal Renderer: Apple M2`). The measurements used the Next development
+server; the production build passed separately.
+
+**Defects fixed during verification:**
+
+- The scrubber thumb's `h-full` resolved against Radix's auto-height wrapper to
+  only 2 px. Explicit 32/40 px heights now make it span the timeline track.
+- The mobile collapse action was an easily missed icon below the timeline with
+  the wrong accessible name when expanded. A visible Expandir/Recolher button
+  with a 44 px touch target now stays above the timeline and outside the scrolling
+  content. Tab headers do not shrink. Collapsing preserves the selected line.
+- The compact mobile timeline hid the smoothing disclosure. It now keeps the
+  smoothing/real-position label visible during replay.
+- Secondary counts on Agora's hovered line buttons had 4.3:1 contrast. They now
+  inherit the button's foreground colour. Final axe checks pass in both schemes.
+- An initial partial history window clamped a shared minute to the first hour
+  that arrived. With hour 15/16 responses delayed 2.5 s, `15:11Z` incorrectly
+  became `14:59Z`. Initial readiness now waits until all requested hours have
+  data or a settled error. The same delayed-response check retains `15:11Z`
+  and displays 12:11; three regression tests use the real hour fixtures.
+
+| Check | Result |
+|---|---|
+| T6, full 60× playback | **117.68 s**, returns to the latest snapshot automatically; expected 118 ± 5 s |
+| T8, real gap | BRT 7001 has a real 1,800 s gap from `14:56:55Z` to `15:26:55Z`. Visible at 11:56 local, absent at 12:11, visible at 12:26. Screenshots: `time-machine-gap-before/during/after.png`. All 11,680 rendered paths have no adjacent fixes more than 300 s apart |
+| T8, real positions | Actual layer props: 2,751 heads, **0 interpolated**, no trails when Só posições reais is on |
+| T8, loading/failure | Delayed/503 history responses show `REPLAY · CARREGANDO` / `REPLAY · SEM HISTÓRICO` and the replay status announcement, **0 heads**, no trails; the latest fleet is not substituted |
+| T8, smoothing disclosure | Visible in expanded desktop/phone layouts and the compact phone timeline |
+| T9, axe | **0 WCAG A/AA violations** at 1440 × 900 and 390 × 844 in both schemes, plus selected-line phone panels in both schemes |
+| T9, keyboard | Home = 0, arrows ±1, PageUp/PageDown ±10, End = 117 and latest mode; Space starts and Enter pauses the focused play button |
+| T9, reduced motion | No autoplay, speed controls disabled, smoothing off by default, **0 interpolated heads**, no trails; 2 whole minutes advance in 2.1 s after clicking play |
+| T10, 60× with trails | 10 s runs: **46.47, 37.37, 47.39 fps**; median **46.47 fps**, above 30 fps |
+| T10, cached cross-hour seek | Four keyboard jumps, 40 min across the hour boundary: **308, 549, 222 ms**, median **308 ms**, below 1 s |
+| T11, screenshots | Eight paused/playing desktop/phone dark/light screenshots, plus compact phone views, selected Linhas, real positions, reduced motion, gap and error states, under `docs/tasks/assets/time-machine-*.png` |
+| Mobile touch regression | Real touch events at 390 × 844 collapse Linhas after scrolling and after searching/selecting 483; control is 44 px tall. No horizontal overflow in either scheme |
+| Repository checks | `make lint`, `make test` (real infrastructure) and `make web-build` pass. After the loading fix, web lint, all **96 tests** and the production build pass again |
+
+Machine-readable evidence: `assets/time-machine-browser-results.json`,
+`assets/time-machine-honesty-results.json`, `assets/time-machine-regression-results.json`.
+Reusable browser checks and setup are in
+[`../research/runs/20261013-time-machine/README.md`](../research/runs/20261013-time-machine/README.md).
+
+The existing desktop offsets were inspected in both schemes without collisions.
+Browser runs reported no application exceptions. The local API and web server
+were started separately on 8080 and 3000; the old occupied-port issue did not recur.

@@ -156,29 +156,31 @@ export default function Dashboard() {
         data-expanded={expanded}
         className="absolute z-20 flex flex-col gap-2 rounded-t-xl border border-borda bg-morro p-3 text-calcadao shadow-lg max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[33svh] max-lg:data-[expanded=true]:h-[70svh] max-lg:data-[expanded=true]:max-h-none lg:top-4 lg:right-4 lg:max-h-[calc(100svh-16rem)] lg:w-[22rem] lg:rounded-xl"
       >
-        {/* On a phone the timeline is the panel's top row; on a desktop it spans the bottom of the screen. */}
+        <div className="flex shrink-0 items-center justify-between gap-2 lg:hidden">
+          <p className="truncate text-sm">{summary}</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-11 shrink-0"
+            aria-label={expanded ? "Recolher painel" : "Expandir painel"}
+            aria-expanded={expanded}
+            aria-controls="painel-conteudo"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? "Recolher" : "Expandir"}
+            <ChevronUp aria-hidden="true" className={expanded ? "rotate-180" : ""} />
+          </Button>
+        </div>
+
+        {/* The mobile collapse control stays above the timeline and scrolling tabs; desktop spans the bottom. */}
         <Timeline expanded={expanded} className="lg:fixed lg:inset-x-4 lg:bottom-9" />
 
         <Tabs value={activeTab} onValueChange={changeTab} className={expanded ? "min-h-0 flex-1" : "lg:min-h-0 lg:flex-1"}>
-          <TabsList aria-label="Painel">
+          <TabsList aria-label="Painel" className="shrink-0">
             <TabsTrigger value="agora">Agora</TabsTrigger>
             <TabsTrigger value="linhas">Linhas</TabsTrigger>
             {params.onibus && <TabsTrigger value="onibus">Ônibus</TabsTrigger>}
           </TabsList>
-
-          <div className="flex items-center justify-between gap-2 lg:hidden">
-            <p className="truncate text-sm">{summary}</p>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Expandir painel"
-              aria-expanded={expanded}
-              aria-controls="painel-conteudo"
-              onClick={() => setExpanded(!expanded)}
-            >
-              <ChevronUp aria-hidden="true" className={expanded ? "rotate-180" : ""} />
-            </Button>
-          </div>
 
           <div id="painel-conteudo" className={`min-h-0 flex-1 overflow-y-auto pr-1 ${expanded ? "" : "max-lg:hidden"}`}>
             <TabsContent value="agora">

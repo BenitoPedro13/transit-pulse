@@ -1,0 +1,118 @@
+{
+  "screens": [
+    "1440x900-dark-paused",
+    "1440x900-dark-playing",
+    "390x844-dark-paused",
+    "390x844-dark-playing",
+    "390x844-dark-compact",
+    "390x844-dark-linhas",
+    "1440x900-light-paused",
+    "1440x900-light-playing",
+    "390x844-light-paused",
+    "390x844-light-playing",
+    "390x844-light-compact",
+    "390x844-light-linhas",
+    "real-positions"
+  ],
+  "errors": [],
+  "accessibility": [
+    {
+      "name": "1440-dark-paused",
+      "violations": []
+    },
+    {
+      "name": "390-dark-paused",
+      "violations": []
+    },
+    {
+      "name": "390-dark-selected-line",
+      "violations": []
+    },
+    {
+      "name": "1440-light-paused",
+      "violations": []
+    },
+    {
+      "name": "390-light-paused",
+      "violations": []
+    },
+    {
+      "name": "390-light-selected-line",
+      "violations": []
+    }
+  ],
+  "keyboard": [
+    {
+      "key": "Home",
+      "value": 0
+    },
+    {
+      "key": "ArrowRight",
+      "value": 1
+    },
+    {
+      "key": "ArrowLeft",
+      "value": 0
+    },
+    {
+      "key": "PageUp",
+      "value": 10
+    },
+    {
+      "key": "PageDown",
+      "value": 0
+    },
+    {
+      "key": "End",
+      "value": 117
+    },
+    {
+      "spaceStarts": true,
+      "enterPauses": true
+    }
+  ],
+  "mobile": [
+    {
+      "scheme": "dark",
+      "collapseAfterScroll": true,
+      "collapseAfterSearchAndSelect": true,
+      "overflow": false
+    },
+    {
+      "scheme": "light",
+      "collapseAfterScroll": true,
+      "collapseAfterSearchAndSelect": true,
+      "overflow": false
+    }
+  ],
+  "performance": [
+    {
+      "frames": 465,
+      "ms": 10005.9,
+      "fps": 46.47258117710551
+    },
+    {
+      "frames": 374,
+      "ms": 10006.69999999851,
+      "fps": 37.37495877762456
+    },
+    {
+      "frames": 474,
+      "ms": 10002.5,
+      "fps": 47.38815296175956
+    }
+  ],
+  "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
+  "reduced": {
+    "noAutoplay": true,
+    "realPositionsDefault": true,
+    "speedDisabled": true,
+    "minutesIn2100ms": 2
+  },
+  "cachedSeekMs": [
+    308.05362500000047,
+    549.0402909999975,
+    221.67408299999806
+  ],
+  "playbackSeconds": 117.681291042
+}

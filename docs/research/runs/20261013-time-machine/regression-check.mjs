@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
+const dir=fileURLToPath(new URL('../../../tasks/assets/', import.meta.url));
+const origin=process.env.TRANSIT_URL ?? 'http://127.0.0.1:3000';
+const b=await chromium.launch({channel:'chromium',headless:true});
+const findings={};
+try {
+ const p=await b.newPage({timezoneId:'America/Sao_Paulo',viewport:{width:1440,height:900}});
+ await p.route('**/api/v1/history/2026-10-12T1*',async r=>{if(!r.request().url().endsWith('T14'))await new Promise(resolve=>setTimeout(resolve,2500));await r.continue();});
+ await p.goto(origin+'/?t=2026-10-12T15:11Z');
+ await p.getByRole('heading',{level:1}).filter({hasText:'CARREGANDO'}).waitFor();
+ assert.equal(new URL(p.url()).searchParams.get('t'),'2026-10-12T15:11Z');
+ await p.getByRole('slider').waitFor();await p.waitForTimeout(300);
+ findings.sharedMinute={delayedHours:['15','16'],delayMs:2500,sign:await p.locator('h1').innerText(),url:p.url()};
+ assert.match(findings.sharedMinute.sign,/12:11/);assert.equal(new URL(p.url()).searchParams.get('t'),'2026-10-12T15:11Z');
+ await p.screenshot({path:dir+'/time-machine-delayed-hour.png'});await p.close();
+ const mobile=await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,timezoneId:'America/Sao_Paulo',colorScheme:'dark'});
+ const mp=await mobile.newPage();await mp.goto(origin);await mp.getByRole('slider').waitFor();
+ await mp.getByRole('tab',{name:'Linhas',exact:true}).tap();
+ await mp.locator('#painel-conteudo').evaluate(e=>e.scrollTop=e.scrollHeight);
+ const collapse=mp.getByRole('button',{name:'Recolher painel'});const rect=await collapse.boundingBox();assert.ok(rect.height>=44);
+ await collapse.tap();assert.equal(await mp.locator('section[aria-label="Painel"]').getAttribute('data-expanded'),'false');
+ await mp.getByRole('button',{name:'Expandir painel'}).tap();await mp.getByRole('searchbox',{name:'Buscar linha'}).fill('483');await mp.locator('section[aria-label="Ônibus"] button').filter({hasText:'483'}).tap();
+ await mp.waitForURL(url=>url.searchParams.get('linha')==='483');
+ await mp.getByRole('button',{name:'Recolher painel'}).tap();assert.equal(await mp.locator('section[aria-label="Painel"]').getAttribute('data-expanded'),'false');
+ assert.equal(new URL(mp.url()).searchParams.get('linha'),'483');
+ findings.touch={viewport:'390x844',collapseAfterScroll:true,collapseAfterSelection:true,controlHeight:rect.height};
+ await mp.waitForTimeout(1000);
+ await mp.screenshot({path:dir+'/time-machine-mobile-touch-collapsed.png'});
+ await mobile.close();console.log('REGRESSIONS PASS',findings);
+}catch(e){findings.failure=String(e.stack);console.error(e);process.exitCode=1;}finally{await fs.writeFile(dir+'/time-machine-regression-results.json',JSON.stringify(findings,null,2)+'\n');await b.close();}

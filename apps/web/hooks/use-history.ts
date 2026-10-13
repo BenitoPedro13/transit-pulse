@@ -64,7 +64,11 @@ let lastFiles: HourFile[] = [];
 let lastState: HistoryState = LOADING;
 
 // Module-level so TanStack can cache its result.
-function combineHours(results: UseQueryResult<HourEntry>[]): HistoryState {
+export function combineHours(results: Pick<UseQueryResult<HourEntry>, "data" | "isPending" | "isError">[]): HistoryState {
+  // A partial initial window would clamp a shared minute to whichever hour arrived first
+  // and rewrite the URL before its own hour loads. A settled error may leave a gap;
+  // an hour that is still loading must not establish the window's bounds yet.
+  if (results.some((r) => r.isPending)) return LOADING;
   const files = results.flatMap((r) => (r.data ? [r.data.file] : []));
   if (files.length === 0) return results.some((r) => r.isError) ? ERROR : LOADING;
   if (files.length === lastFiles.length && files.every((f, i) => f === lastFiles[i])) return lastState;

@@ -29,7 +29,7 @@ buses (pick a line, click a bus, follow it, colour by speed; the view lives in t
 table at `/tabela` as the non-map alternative (plans and measurements in
 [`docs/tasks/TASK-live-map.md`](docs/tasks/TASK-live-map.md) and
 [`docs/tasks/TASK-dashboard.md`](docs/tasks/TASK-dashboard.md)). A time machine (a timeline along the bottom: scrub the last hours, play at
-1×/10×/60× with fading trails, and a way back to live) is built too; its on-screen checks are still to run
+1×/10×/60× with fading trails, and a way back to live) is built and browser-verified too (2026-10-13)
 ([`docs/tasks/TASK-time-machine.md`](docs/tasks/TASK-time-machine.md)). The raw log isn't uploaded to S3 yet.
 
 ## Setup
