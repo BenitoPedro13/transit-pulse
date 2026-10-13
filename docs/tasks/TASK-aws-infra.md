@@ -510,3 +510,30 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
 - **Credits remaining:** not readable from the CLI (Cost Explorer shows October usage of ≈ USD 0 net
   of credit). `[VERIFY: user reads Billing console → Credits and records the balance here before
   Phase 2; if the month the credits run out is before 2026-12-31, tell the user]`
+
+### Phase 1 (2026-10-13)
+
+- **Applied:** the state bucket (`transit-pulse-tfstate-860897618882`, bootstrap state migrated into it,
+  0 differences afterwards) and `prod` (47 resources). `terraform plan` after the last apply: no
+  changes.
+- **Instance:** `i-0226cf8c069a7d5f3`, `t4g.small` Spot, `us-east-1c`, EIP `52.2.45.217`, online in SSM
+  (`aws ssm send-command` works; no SSH).
+- **Checks (§5):**
+  - security group ingress (`describe-security-group-rules`): tcp 80 and tcp 443 from `0.0.0.0/0`
+    only;
+  - `findmnt /data`: 29.9G xfs; `swapon --show`: `/swapfile` 2G; Docker 25.0.14, Compose v5.5.1;
+  - from the box, `s3:PutObject` on the raw bucket succeeded, and both `delete-object` (no version)
+    and `delete-object --version-id` returned `AccessDenied` (no `s3:DeleteObject` and no
+    `s3:DeleteObjectVersion` in the role). The probe object `_probe/p.txt` (6 bytes) stays in the raw
+    bucket because the box can't delete it; remove it with the admin user if wanted.
+- **Deviation: CloudFront was refused.** `CreateDistributionWithTags` returned 403 *"Your account must
+  be verified before you can add new CloudFront resources. To verify your account, please contact AWS
+  Support"* (request `c7114380-24a2-4382-a42e-df8c81e32eec`). **Decision (user, 2026-10-13): the tiles
+  bucket is public-read S3** (`s3:GetObject` for `*`, CORS exposing `Content-Range`, `Content-Length`,
+  `ETag`), served at `https://transit-pulse-tiles-860897618882.s3.us-east-1.amazonaws.com`
+  (`NEXT_PUBLIC_TILES_BASE_URL`). S3 honours `Range` natively; the `206` check moves to Phase 4.
+  CloudFront can be added later if a Support case verifies the account. The raw and ops buckets stay
+  private.
+- **Still open:** the cost-allocation tag `project` must be activated in Billing for
+  `transit-pulse-monthly` to match; the credit balance (Phase 0); the SSM parameters
+  `/transit-pulse/prod/POSTGRES_PASSWORD` and `/ITS_CONTACT` hold `UNSET`; the DuckDNS name.
