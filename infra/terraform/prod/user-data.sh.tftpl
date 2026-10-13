@@ -1,0 +1,64 @@
+#!/bin/bash
+# First-boot host setup for transit-pulse (TASK-aws-infra.md §2.3). Runs once via
+# cloud-init. Log: /var/log/transit-pulse-bootstrap.log (read it over SSM Session Manager).
+# Bash variables are written as $NAME, never with braces: templatefile() treats every
+# dollar-brace sequence as its own interpolation, and only these are meant to be.
+set -euxo pipefail
+exec > >(tee -a /var/log/transit-pulse-bootstrap.log) 2>&1
+
+retry() {
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    "$@" && return 0
+    echo "retry: attempt $attempt failed: $*"
+    sleep 10
+  done
+  return 1
+}
+
+# --- Docker Engine + Compose plugin -----------------------------------------------------------
+retry dnf install -y docker
+systemctl enable --now docker
+
+# AL2023's repos don't ship the Compose v2 plugin; install the pinned release, checksum-verified.
+mkdir -p /usr/libexec/docker/cli-plugins
+retry curl -fsSL -o /tmp/docker-compose \
+  "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64"
+echo "${compose_sha256}  /tmp/docker-compose" | sha256sum -c -
+install -m 0755 /tmp/docker-compose /usr/libexec/docker/cli-plugins/docker-compose
+docker compose version
+
+# --- 2 GiB swapfile: safety margin under the per-service memory caps (§2.4) --------------------
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+swapon /swapfile || true
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+# --- Data volume at /data ---------------------------------------------------------------------
+# The attachment is a separate Terraform resource, applied after the instance exists, so this
+# can run before the disk shows up. Wait for it instead of racing.
+DATA_DEV="${data_volume_device}"
+for _ in $(seq 1 60); do
+  [ -e "$DATA_DEV" ] && break
+  sleep 5
+done
+if [ ! -e "$DATA_DEV" ]; then
+  echo "data volume $DATA_DEV never attached; refusing to continue" >&2
+  exit 1
+fi
+
+# Format ONLY a blank volume. An existing filesystem is the database; never mkfs over it.
+if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
+  mkfs.xfs "$DATA_DEV"
+fi
+
+mkdir -p /data
+DATA_UUID="$(blkid -s UUID -o value "$DATA_DEV")"
+grep -q "$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
+systemctl daemon-reload
+mount -a
+findmnt /data
+
+echo "transit-pulse bootstrap complete"

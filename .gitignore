@@ -32,3 +32,10 @@ apps/web/public/tiles/
 
 # Static GTFS projections: `make gtfs` or offline `make gtfs-export` regenerates them.
 apps/web/public/gtfs/
+
+# Terraform and Vercel (docs/tasks/TASK-aws-infra.md)
+*.tfstate*
+.terraform/
+*.tfvars
+!*.tfvars.example
+.vercel/
