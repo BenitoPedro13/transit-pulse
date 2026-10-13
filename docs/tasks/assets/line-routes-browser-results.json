@@ -1,0 +1,124 @@
+{
+  "layouts": [
+    {
+      "scheme": "dark",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "collapsedAfterScrolling": false,
+      "disclosureVisible": true,
+      "overflow": false
+    },
+    {
+      "scheme": "dark",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "collapsedAfterScrolling": true,
+      "disclosureVisible": true,
+      "overflow": false
+    },
+    {
+      "scheme": "light",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "collapsedAfterScrolling": false,
+      "disclosureVisible": true,
+      "overflow": false
+    },
+    {
+      "scheme": "light",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "collapsedAfterScrolling": true,
+      "disclosureVisible": true,
+      "overflow": false
+    }
+  ],
+  "patterns": [
+    {
+      "scheme": "dark",
+      "width": 1440,
+      "variants": 4,
+      "switchMs": 186.30000000074506,
+      "keyboardPattern": "96f343ef2500dfd443a209f2a04a9f3cf3860964548ddd3f7bb9e5049faa32be",
+      "stops": 6
+    },
+    {
+      "scheme": "dark",
+      "width": 390,
+      "variants": 4,
+      "switchMs": 154.90000000223517,
+      "keyboardPattern": "96f343ef2500dfd443a209f2a04a9f3cf3860964548ddd3f7bb9e5049faa32be",
+      "stops": 6
+    },
+    {
+      "scheme": "light",
+      "width": 1440,
+      "variants": 4,
+      "switchMs": 250.40000000223517,
+      "keyboardPattern": "96f343ef2500dfd443a209f2a04a9f3cf3860964548ddd3f7bb9e5049faa32be",
+      "stops": 6
+    },
+    {
+      "scheme": "light",
+      "width": 390,
+      "variants": 4,
+      "switchMs": 146,
+      "keyboardPattern": "96f343ef2500dfd443a209f2a04a9f3cf3860964548ddd3f7bb9e5049faa32be",
+      "stops": 6
+    }
+  ],
+  "accessibility": [
+    {
+      "name": "1440-dark-stops",
+      "violations": []
+    },
+    {
+      "name": "390-dark-stops",
+      "violations": []
+    },
+    {
+      "name": "1440-light-stops",
+      "violations": []
+    },
+    {
+      "name": "390-light-stops",
+      "violations": []
+    }
+  ],
+  "errors": [],
+  "performance": [
+    16.8983101689831,
+    31.392151962009496,
+    35.9590067323305
+  ],
+  "race": {
+    "delayedPreviousLineRemoved": true,
+    "latestSelection": "565"
+  },
+  "missing": {
+    "observedVehiclesPreserved": true,
+    "recovered": false
+  },
+  "assetFailure": {
+    "observedVehiclesPreserved": true,
+    "recovered": true
+  },
+  "reducedMotion": {
+    "noAutoplay": true,
+    "noTrails": true,
+    "noInterpolation": true,
+    "staticRoute": "22"
+  },
+  "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
+  "medianFps": 31.392151962009496,
+  "routeRequestsDuringPlayback": 0,
+  "latestModeKeepsRoute": true
+}

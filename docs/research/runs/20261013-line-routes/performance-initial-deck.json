@@ -1,0 +1,15 @@
+{
+  "setup": "Initial deck.gl reference layers, measured after repeated layout contexts in one browser process. The 30 fps median target failed; the static reference was subsequently moved to MapLibre.",
+  "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
+  "fps": [
+    20.96373571783408,
+    22.342579570505464,
+    16.036176019447378
+  ],
+  "median_fps": 20.96373571783408,
+  "fresh_browser_diagnostic": {
+    "with_deck_reference_fps": 32.865162927304404,
+    "without_reference_same_camera_fps": 42.487678573220094,
+    "note": "One 10 s diagnostic per case; not the final median-of-three check."
+  }
+}

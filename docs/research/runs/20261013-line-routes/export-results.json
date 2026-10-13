@@ -1,0 +1,69 @@
+{
+  "feed": {
+    "sha256": "a99f925460e7628b6eeecb9952430542c06b3e2800afa8ba7f9765fd2e6f26f1",
+    "source": "https://dados.mobilidade.rio/gtfs/schedule",
+    "fetched_at": "2026-10-13T22:03:04.113538Z",
+    "modified_at": "Wed, 10 Jun 2026 17:51:42 GMT",
+    "start_date": "20240101",
+    "end_date": "20261231",
+    "attribution": "Secretaria Municipal de Transportes - SMTR, Prefeitura da Cidade do Rio de Janeiro - PCRJ"
+  },
+  "runs": [
+    {
+      "seconds": 5.815,
+      "peak_rss_bytes": 292044800
+    },
+    {
+      "seconds": 8.518,
+      "peak_rss_bytes": 263897088
+    },
+    {
+      "seconds": 6.461,
+      "peak_rss_bytes": 290111488
+    }
+  ],
+  "median_seconds": 6.461,
+  "median_peak_rss_bytes": 290111488,
+  "lines": 494,
+  "patterns": 961,
+  "unique_stops": 7493,
+  "json_bytes": 13343543,
+  "gzip_bytes": 3319000,
+  "largest_gzip": {
+    "line": "2335",
+    "json_bytes": 140148,
+    "gzip_bytes": 29802
+  },
+  "unmatched_snapshot_lines": [
+    "0",
+    "014",
+    "1 GAR",
+    "109",
+    "157",
+    "3",
+    "456",
+    "54",
+    "685",
+    "944",
+    "950",
+    "951",
+    "959",
+    "ESPECIAL",
+    "FORA DE OP",
+    "GARAGEM",
+    "LECD153",
+    "LECD154",
+    "LECD155",
+    "LECD156",
+    "LECD157",
+    "MANUTENCAO",
+    "OPER.",
+    "RESERVADO",
+    "SN552",
+    "SV774",
+    "SVA665",
+    "SVB685",
+    "TREINO"
+  ],
+  "matched_snapshot_lines": 330
+}

@@ -1,0 +1,90 @@
+{
+  "gap": {
+    "operator": "rio-brt",
+    "vehicle": "7001",
+    "mode": "brt",
+    "previousFix": "2026-10-12T14:56:55.000Z",
+    "nextFix": "2026-10-12T15:26:55.000Z",
+    "gapSeconds": 1800,
+    "pathCount": 11680,
+    "minuteBefore": "2026-10-12T14:56Z",
+    "minuteDuring": "2026-10-12T15:11Z",
+    "minuteAfter": "2026-10-12T15:26Z"
+  },
+  "before": {
+    "visible": true,
+    "selected": "7001",
+    "trails": true,
+    "sign": "REPLAY 11:56 · ESP01 · 7001",
+    "url": "http://localhost:3000/?onibus=7001&t=2026-10-12T14%3A56Z",
+    "sample": {
+      "operator": "rio-brt",
+      "mode": "brt",
+      "vehicle": "7001",
+      "line": "ESP01",
+      "lat": -22.87471,
+      "lon": -43.22737,
+      "event_time": "2026-10-12T14:56:55.000Z",
+      "speed_kmh": 0,
+      "heading_deg": null,
+      "operatorLabel": "BRT",
+      "ageSeconds": 5,
+      "interpolated": false
+    }
+  },
+  "during": {
+    "visible": false,
+    "selected": null,
+    "trails": true,
+    "sign": "REPLAY 12:11 · 7001 · NÃO APARECE",
+    "url": "http://localhost:3000/?onibus=7001&t=2026-10-12T15%3A11Z"
+  },
+  "after": {
+    "visible": true,
+    "selected": "7001",
+    "trails": true,
+    "sign": "REPLAY 12:26 · ESP01 · 7001",
+    "url": "http://localhost:3000/?onibus=7001&t=2026-10-12T15%3A26Z",
+    "sample": {
+      "operator": "rio-brt",
+      "mode": "brt",
+      "vehicle": "7001",
+      "line": "ESP01",
+      "lat": -22.87471,
+      "lon": -43.22737,
+      "event_time": "2026-10-12T15:26:55.000Z",
+      "speed_kmh": 0,
+      "heading_deg": null,
+      "operatorLabel": "BRT",
+      "ageSeconds": 5,
+      "interpolated": false
+    }
+  },
+  "realPositions": {
+    "trails": false,
+    "interpolated": 0,
+    "vehicles": 2751
+  },
+  "reduced": {
+    "trails": false,
+    "interpolated": 0
+  },
+  "loading": {
+    "drawn": 0,
+    "trails": false,
+    "sign": "REPLAY · CARREGANDO",
+    "status": [
+      "Reprodução do histórico, não é ao vivo.",
+      "Carregando o histórico…"
+    ]
+  },
+  "unavailable": {
+    "drawn": 0,
+    "trails": false,
+    "sign": "REPLAY · CARREGANDO\nREPLAY · SEM HISTÓRICO",
+    "status": [
+      "Reprodução do histórico, não é ao vivo.",
+      "Histórico indisponível agora."
+    ]
+  }
+}

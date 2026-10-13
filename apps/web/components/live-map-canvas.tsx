@@ -7,11 +7,13 @@ import { TripsLayer } from "@deck.gl/geo-layers";
 import { IconLayer } from "@deck.gl/layers";
 import { useEffect, useRef } from "react";
 import { Map, NavigationControl, useMap } from "react-map-gl/maplibre";
-import { GAP_SECONDS, tripsData, type HistoryWindow } from "@/hooks/history-window";
+import { GAP_SECONDS, activeTripsData, type HistoryWindow } from "@/hooks/history-window";
 import { mapPadding } from "@/hooks/map-padding";
 import { useReplayFrame } from "@/hooks/use-playback";
 import { formatAgeSeconds, type VehicleRow } from "@/hooks/use-latest-vehicles";
 import { useDeckOverlay } from "@/hooks/use-deck-overlay";
+import type { RouteView } from "@/hooks/use-line-routes";
+import RouteReference from "./route-reference";
 import type { ColorBy } from "@/hooks/dashboard-url";
 import type { ColorScheme } from "@/hooks/use-color-scheme";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -115,14 +117,16 @@ type Trails = { window: HistoryWindow; currentTime: number };
 // Same colour as the vehicle's mark in "modo" (a trail has no single speed), and the same dimming.
 function trailsLayer(trails: Trails, linha: string | null, selectedId: string | null, scheme: ColorScheme) {
   const w = trails.window;
+  const active = activeTripsData(w, trails.currentTime);
   const rgb = { bus: hexToRgb(PALETTE[scheme].bus), brt: hexToRgb(PALETTE[scheme].brt) };
   return new TripsLayer({
     id: "trails",
-    data: tripsData(w),
+    data: active.data,
     positionFormat: "XY",
     getColor: (_: unknown, { index }: { index: number }) => {
-      const series = w.series[w.pathSeries[index]];
-      const dim = linha !== null && w.lines[w.pathLine[index]] !== linha && series.vehicle !== selectedId;
+      const path = active.pathIndices[index];
+      const series = w.series[w.pathSeries[path]];
+      const dim = linha !== null && w.lines[w.pathLine[path]] !== linha && series.vehicle !== selectedId;
       return [...(series.mode === "brt" ? rgb.brt : rgb.bus), Math.round(255 * (dim ? DIMMED_FACTOR : 1))] as [number, number, number, number];
     },
     getWidth: 3,
@@ -132,11 +136,12 @@ function trailsLayer(trails: Trails, linha: string | null, selectedId: string | 
     currentTime: trails.currentTime,
     trailLength: GAP_SECONDS,
     fadeTrail: true,
-    updateTriggers: { getColor: [w, linha, selectedId, scheme] },
+    updateTriggers: { getColor: [active, w, linha, selectedId, scheme] },
   });
 }
 
 type VehicleLayerProps = {
+  route: RouteView | null;
   vehicles: DrawnRow[];
   linha: string | null;
   selected: DrawnRow | null;
@@ -195,6 +200,8 @@ function VehicleLayer({ vehicles, linha, selected, trails, colorBy, scheme, onSe
 }
 
 type CameraProps = {
+  route: RouteView | null;
+  routePending: boolean;
   vehicles: DrawnRow[];
   linha: string | null;
   selected: DrawnRow | null;
@@ -207,7 +214,7 @@ type CameraProps = {
 
 // Moves the camera. It's a separate component because it needs the map from react-map-gl's context.
 // Each move below is an Effect because the map is an external system.
-function Camera({ vehicles, linha, selected, snap, follow, isDesktop, panelExpanded }: CameraProps) {
+function Camera({ vehicles, linha, selected, snap, follow, isDesktop, panelExpanded, route, routePending }: CameraProps) {
   const { current: map } = useMap();
   const reduced = useReducedMotion();
   const fittedLine = useRef<string | null>(null);
@@ -221,9 +228,15 @@ function Camera({ vehicles, linha, selected, snap, follow, isDesktop, panelExpan
       fittedLine.current = null;
       return;
     }
-    if (fittedLine.current === linha) return;
+    if (routePending || follow || selected) return;
+    const fitKey = route ? `${linha}:${route.pattern.id}` : linha;
+    if (fittedLine.current === fitKey) return;
     const bounds = new LngLatBounds();
     let any = false;
+    if (route) {
+      for (const p of route.shape.path) bounds.extend(p);
+      any = true;
+    }
     for (const v of vehicles) {
       if (v.line === linha) {
         bounds.extend([v.lon, v.lat]);
@@ -231,13 +244,13 @@ function Camera({ vehicles, linha, selected, snap, follow, isDesktop, panelExpan
       }
     }
     if (!any) return;
-    fittedLine.current = linha;
+    fittedLine.current = fitKey;
     map.fitBounds(bounds, {
       padding: mapPadding(isDesktop, panelExpanded, window.innerHeight),
       maxZoom: 15,
       duration: reduced ? 0 : 800,
     });
-  }, [map, vehicles, linha, isDesktop, panelExpanded, reduced]);
+  }, [map, vehicles, linha, isDesktop, panelExpanded, reduced, route, routePending, follow, selected]);
 
   // A bus picked from the panel, or from a shared URL, may be off screen: bring it into view once.
   useEffect(() => {
@@ -305,6 +318,7 @@ export default function LiveMapCanvas({ onUserPan, ...props }: Props) {
       onDragStart={onUserPan}
     >
       <NavigationControl showCompass={false} />
+      <RouteReference view={props.route} scheme={props.scheme} />
       <Scene {...props} />
     </Map>
   );

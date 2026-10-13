@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import hour15 from "./testdata/history-hour-15.json";
 import hour16 from "./testdata/history-hour-16.json";
 import {
+  activeTripsData,
   buildWindow,
   clampPlayhead,
   GAP_SECONDS,
@@ -346,5 +347,45 @@ describe("playhead", () => {
     expect(clampPlayhead(w, firstMs - 1)).toBe(firstMs);
     expect(clampPlayhead(w, lastMs + 1)).toBe(lastMs);
     expect(clampPlayhead(w, firstMs + 5)).toBe(firstMs + 5);
+  });
+});
+
+describe("visible trail geometry", () => {
+  const w = windowOf(files);
+  it("retains every visible real segment, exact coordinates and gap boundaries", () => {
+    for (const now of [60, 60.5, 1200.25, 3599.9, 3600, 4200.5, 5040]) {
+      const active = activeTripsData(w, now);
+      const xy = active.data.attributes.getPath.value;
+      const times = active.data.attributes.getTimestamps.value;
+      const starts = active.data.startIndices;
+      const edges = new Set<string>();
+      for (let p = 0; p < active.data.length; p++) {
+        const original = active.pathIndices[p];
+        for (let k = starts[p]; k < starts[p + 1]; k++) {
+          const fixes = Array.from({ length: (w.pathStarts[original + 1] ?? w.t.length) - w.pathStarts[original] }, (_, i) => w.pathStarts[original] + i);
+          const fix = fixes.find((i) => w.t[i] === times[k]);
+          expect(fix).toBeDefined();
+          expect([xy[2 * k], xy[2 * k + 1]]).toEqual([w.xy[2 * fix!], w.xy[2 * fix! + 1]]);
+          if (k > starts[p]) {
+            expect(times[k] - times[k - 1]).toBeLessThanOrEqual(GAP_SECONDS);
+            edges.add(`${original}:${times[k - 1]}:${times[k]}`);
+          }
+        }
+      }
+      for (let p = 0; p < w.pathSeries.length; p++) {
+        for (let k = w.pathStarts[p] + 1; k < (w.pathStarts[p + 1] ?? w.t.length); k++) {
+          if (w.t[k] >= now - GAP_SECONDS && w.t[k - 1] <= now) {
+            expect(edges.has(`${p}:${w.t[k - 1]}:${w.t[k]}`)).toBe(true);
+          }
+        }
+      }
+      expect(times.length).toBeLessThan(w.t.length);
+    }
+  });
+  it("reuses buffers within a minute and for a cached seek", () => {
+    const first = activeTripsData(w, 1200);
+    expect(activeTripsData(w, 1259.9)).toBe(first);
+    expect(activeTripsData(w, 1260)).not.toBe(first);
+    expect(activeTripsData(w, 1200)).toBe(first);
   });
 });

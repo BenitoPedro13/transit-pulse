@@ -379,6 +379,14 @@ captured from vendor URLs with credentials, not from these endpoints.
 - **Sample:** `samples/smtr-20261012-gtfs-trimmed.zip` holds 3 routes (BRT `22` /
   `20000221110`, bus `565`, bus `343`), at most 6 trips per direction, and the stops,
   stop_times, shapes, frequencies and fares they reference. Every file is kept consistent.
+- **D3 capture, 2026-10-13 22:03:04 UTC:** `make gtfs` retained the complete response under
+  `var/raw/gtfs/v1/` and saved its raw location/validators in `var/gtfs/state.json`. The ZIP
+  SHA-256 is unchanged from 2026-10-12; `Last-Modified` remains 2026-06-10. Static export
+  produced 494 line files, 961 distinct route/direction/shape/stop-sequence patterns and
+  7,493 referenced stops. Of 359 distinct non-null line labels in the recording's newest
+  snapshot, 330 match exactly and 29 do not. No aliases or direction guesses are applied.
+  Metadata, unmatched labels and medians of three offline exports are preserved in
+  [`runs/20261013-line-routes/export-results.json`](runs/20261013-line-routes/export-results.json).
 
 ## 3. data.rio historical data on BigQuery
 

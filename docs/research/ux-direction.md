@@ -96,8 +96,10 @@ Rider utility is a solved, crowded space, which is one more reason to build some
    - "AO VIVO" jumps back to now.
    - The history format is the same one the static replay (architecture §7) will use, so the
      replay days later reuse the screen unchanged.
-3. **D3 (later): line routes on the map.** Static GTFS shapes and stops are drawn for the
+3. **D3 `TASK-line-routes.md`: line routes on the map.** Static GTFS shapes and stops are drawn for the
    selected line. A stale GTFS is fine for that (user, 2026-10-12). Nothing measures headways.
+   User decision (2026-10-13): export static per-line files. Destination variants and ordered
+   stop lists stay available in replay without querying the live backend.
 4. **D4 (later): the speed map.** A hexagon layer of median speed over the last 15 minutes, or
    over the played window: "where Rio is stuck right now".
 

@@ -30,7 +30,10 @@ table at `/tabela` as the non-map alternative (plans and measurements in
 [`docs/tasks/TASK-live-map.md`](docs/tasks/TASK-live-map.md) and
 [`docs/tasks/TASK-dashboard.md`](docs/tasks/TASK-dashboard.md)). A time machine (a timeline along the bottom: scrub the last hours, play at
 1×/10×/60× with fading trails, and a way back to live) is built and browser-verified too (2026-10-13)
-([`docs/tasks/TASK-time-machine.md`](docs/tasks/TASK-time-machine.md)). The raw log isn't uploaded to S3 yet.
+([`docs/tasks/TASK-time-machine.md`](docs/tasks/TASK-time-machine.md)). Selected lines also have static GTFS routes,
+destination variants and an ordered stop list (D3,
+[`docs/tasks/TASK-line-routes.md`](docs/tasks/TASK-line-routes.md)); the reference geometry stays available
+in live and replay views. The raw log isn't uploaded to S3 yet.
 
 ## Setup
 
@@ -61,6 +64,7 @@ make consumer    # topics -> TimescaleDB (needs `make up`; Ctrl-C stops it)
 make rebuild FROM=2026-10-12T14:27:00Z TO=2026-10-12T16:24:00Z   # raw log -> TimescaleDB
 make api         # read-only API on 127.0.0.1:8080 (needs `make up` and a filled database)
 make tiles       # Rio basemap extract -> apps/web/public/tiles/rio.pmtiles (needs `brew install pmtiles`)
+make gtfs        # static line routes/stops -> apps/web/public/gtfs/ (retains byte-exact ZIP in the raw log)
 pnpm --dir apps/web install   # first time only, if apps/web/node_modules is missing
 ```
 
@@ -69,7 +73,9 @@ pnpm --dir apps/web install   # first time only, if apps/web/node_modules is mis
 1. `make up`, then fill the database: `make adapter-its` and `make consumer` for live data, or
    `make rebuild FROM=… TO=…` from a raw log (the screen then says "Não está ao vivo" and the minute
    it shows).
-2. `make tiles` once (about 45 MB, git-ignored; the Protomaps daily build is kept for a week).
+2. `make tiles` once (about 45 MB, git-ignored; the Protomaps daily build is kept for a week),
+   then `make gtfs` for route geometry and stops. Run the latter before `make web-build` too:
+   generated assets are git-ignored and must be included in the deployed web artifact.
 3. `make api` in one terminal and `make web-dev` in another, then open http://localhost:3000. The
    web app reaches the API through a rewrite (`/api/*` → `127.0.0.1:8080`), so there is no CORS.
 
@@ -86,12 +92,22 @@ pnpm --dir apps/web install   # first time only, if apps/web/node_modules is mis
 | `make consumer` | runs `apps/consumer` with `.env` loaded: consumer group `transit-pulse-consumer` on `positions.v1` and `feed-status.v1`, one transaction per batch, offsets committed after it. Needs `DATABASE_URL`. Logs one JSON line per batch |
 | `make api` | runs `apps/api` with `.env` loaded. Read-only; listens on `API_ADDR` (default `127.0.0.1:8080`). `GET /v1/vehicles/latest` and `GET /healthz`, both from memory. Starts and answers `503` if the database is down, then recovers by itself |
 | `make tiles` | `pmtiles extract` of the newest Protomaps daily build for the Rio bbox into `apps/web/public/tiles/rio.pmtiles` (git-ignored). `make tiles TILES_BUILD=<key>` picks a build |
+| `make gtfs` | conditional SMTR GTFS fetch, at most one attempt per 24 h, then deterministic static export. Reads `RAW_DIR` and optional `GTFS_CONTACT` (falls back to `ITS_CONTACT`); saves raw bytes and validators locally. Previous exports survive failed fetches |
+| `make gtfs-export` | offline regeneration from the saved raw location in `var/gtfs/state.json`; no database, broker or network request |
 | `make rebuild FROM=… TO=…` | runs `apps/rebuild`: rebuilds `positions` and `feed_status` from the raw log for those minutes (both inclusive), oldest first. Writes `DATABASE_URL`, or `DB=postgres://…` for another database. Running it again changes nothing |
 
 **If the consumer falls more than 24 h behind**, the topic has already dropped the oldest
 records (`positions.v1` keeps 24 h). The minutes are still in the raw log: run `make rebuild`
 for the missing range, then start `make consumer` again. Rebuilding into the live database is
 safe.
+
+**Routes are a static reference.** The selected line's destination selector shows the GTFS
+variants; the stop list provides the same information without the map. The capture date,
+declared feed dates and SMTR attribution are in “Sobre este trajeto”. Geometry does not
+confirm a bus's actual path or the line configuration at a replay date. Exact unmatched
+line names show “Sem trajeto no GTFS”; missing assets show a retry action and leave vehicles
+and playback available. The current public feed was unchanged between the 12 and 13 October
+captures. See the D3 task for measured export sizes and join coverage.
 
 Local ports (all bound to `127.0.0.1`): Kafka `29092`, Redpanda Admin API `29644`, Postgres
 `5435`. They differ from renewable-pulse's so both stacks can run at once. `scripts/idle-memory.sh`

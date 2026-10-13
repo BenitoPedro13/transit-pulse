@@ -2,7 +2,7 @@
 
 import { ChevronUp } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { letreiroText } from "@/hooks/letreiro-text";
@@ -15,6 +15,7 @@ import { selectFromRows, useSelectedVehicle, type SelectedVehicle } from "@/hook
 import { useVehicleStatus } from "@/hooks/use-vehicle-status";
 import { toLineIndex, useLineIndex, useVehiclesOfLine, vehiclesOfLine } from "@/hooks/use-lines";
 import { useReplayRows, useReplayView } from "@/hooks/use-playback";
+import { routeView, useLineRoutes } from "@/hooks/use-line-routes";
 import ColorLegend from "./color-legend";
 import Letreiro from "./letreiro";
 import LiveMap from "./live-map";
@@ -62,6 +63,11 @@ export default function Dashboard() {
   const [tab, setTab] = useState<Tab>(params.onibus ? "onibus" : params.linha ? "linhas" : "agora");
   const [follow, setFollow] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const routes = useLineRoutes(params.linha);
+  const [patternChoice, setPatternChoice] = useState<{ line: string | null; id: string | null }>({ line: null, id: null });
+  const routeData = routes.kind === "ready" ? routes.data : undefined;
+  const patternId = patternChoice.line === params.linha ? patternChoice.id : null;
+  const referenceRoute = useMemo(() => routeView(routeData, patternId), [routeData, patternId]);
 
   // A bus that drops out of the newest minute can't be followed. Said while rendering, not in an
   // Effect, so Seguir is off in the same render that shows "Não aparece".
@@ -196,6 +202,9 @@ export default function Dashboard() {
                 onSelectLine={selectLine}
                 onClearLine={clearLine}
                 onSelectBus={selectBus}
+                routes={routes}
+                route={referenceRoute}
+                onPattern={(id) => setPatternChoice({ line: params.linha, id })}
               />
             </TabsContent>
             {params.onibus && (
@@ -218,6 +227,12 @@ export default function Dashboard() {
         <ColorLegend cor={params.cor} onChange={params.setCor} className="lg:fixed lg:bottom-[11rem] lg:left-4" />
       </section>
 
+      {referenceRoute && (
+        <p className="pointer-events-none absolute left-3 z-10 max-w-[calc(100%-1.5rem)] rounded-md border border-borda bg-morro px-2 py-1 text-xs text-calcadao max-lg:bottom-[calc(var(--panel-h)+0.5rem)] lg:bottom-[16.5rem] lg:left-4">
+          Trajeto de referência · GTFS estático
+        </p>
+      )}
+
       {/* Last in the source, so the keyboard reaches the heading, the panel and the legend before the
           map's own controls. Painting order is by z-index, not source order. */}
       <LiveMap
@@ -232,6 +247,8 @@ export default function Dashboard() {
         panelExpanded={expanded}
         onSelectBus={selectBus}
         onUserPan={() => setFollow(false)}
+        route={referenceRoute}
+        routePending={routes.kind === "loading"}
       />
     </main>
   );

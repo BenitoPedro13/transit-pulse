@@ -1,4 +1,4 @@
-.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles
+.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles gtfs gtfs-export
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -64,6 +64,14 @@ rebuild: .env
 # /api rewrite in apps/web/next.config.ts. Read-only: it never migrates or writes.
 api: .env
 	set -a && . ./.env && set +a && go run ./apps/api
+
+# Prepare static line geometry before web-build. One conditional fetch per 24 h maximum.
+gtfs: .env
+	set -a && . ./.env && set +a && go run ./apps/gtfs fetch
+
+# Offline rebuild from the retained raw location in var/gtfs/state.json.
+gtfs-export: .env
+	set -a && . ./.env && set +a && go run ./apps/gtfs export
 
 # Rio basemap extract (Protomaps daily build, ~45 MB) -> apps/web/public/tiles/rio.pmtiles.
 # Needs the pmtiles CLI (`brew install pmtiles`). Override the build: make tiles TILES_BUILD=20261012.pmtiles

@@ -351,6 +351,54 @@ export type TripsData = {
   };
 };
 
+export type ActiveTrips = { data: TripsData; pathIndices: Uint32Array };
+const activeTrips = new WeakMap<HistoryWindow, Map<number, ActiveTrips>>();
+
+// TripsLayer fades to the last 300 seconds, but submitting the entire multi-hour window
+// still makes the GPU process all its vertices. Cache a superset for each played minute:
+// include both bracketing real fixes, never merge paths and never change timestamps.
+export function activeTripsData(w: HistoryWindow, currentTime: number): ActiveTrips {
+  const minute = Math.floor(currentTime / 60);
+  let cache = activeTrips.get(w);
+  if (!cache) { cache = new Map(); activeTrips.set(w, cache); }
+  const cached = cache.get(minute);
+  if (cached) return cached;
+  const low = minute * 60 - GAP_SECONDS;
+  const high = (minute + 1) * 60;
+  const ranges: { path: number; from: number; to: number }[] = [];
+  let points = 0;
+  for (let path = 0; path < w.pathSeries.length; path++) {
+    const first = w.pathStarts[path];
+    const end = w.pathStarts[path + 1] ?? w.t.length;
+    if (end - first < 2 || w.t[end - 1] < low || w.t[first] > high) continue;
+    let from = first;
+    while (from + 1 < end && w.t[from + 1] < low) from++;
+    let to = from + 1;
+    while (to < end && w.t[to] <= high) to++;
+    to = Math.min(end, to + 1);
+    ranges.push({ path, from, to });
+    points += to - from;
+  }
+  const xy = new Float64Array(points * 2);
+  const t = new Float32Array(points);
+  const starts = new Uint32Array(ranges.length + 1);
+  const pathIndices = new Uint32Array(ranges.length);
+  let cursor = 0;
+  ranges.forEach(({ path, from, to }, i) => {
+    starts[i] = cursor; pathIndices[i] = path;
+    xy.set(w.xy.subarray(from * 2, to * 2), cursor * 2);
+    t.set(w.t.subarray(from, to), cursor);
+    cursor += to - from;
+  });
+  starts[ranges.length] = cursor;
+  const result: ActiveTrips = { pathIndices, data: { length: ranges.length, startIndices: starts, attributes: {
+    getPath: { value: xy, size: 2 }, getTimestamps: { value: t, size: 1 },
+  } } };
+  cache.set(minute, result);
+  if (cache.size > 3) cache.delete(cache.keys().next().value!);
+  return result;
+}
+
 // One object per window, so deck.gl sees the same `data` on every frame and tessellates the paths once.
 const trips = new WeakMap<HistoryWindow, TripsData>();
 

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatCount, type VehicleRow } from "@/hooks/use-latest-vehicles";
 import { matchLines, type LineEntry, type LineIndex } from "@/hooks/use-lines";
+import type { RoutesState, RouteView } from "@/hooks/use-line-routes";
+import PanelRoute from "./panel-route";
 
 type Props = {
   // The lines and the selected line's buses: the newest minute live, or the minute under the playhead in
@@ -16,6 +18,9 @@ type Props = {
   onSelectLine: (line: string) => void;
   onClearLine: () => void;
   onSelectBus: (vehicle: string) => void;
+  routes: RoutesState;
+  route: RouteView | null;
+  onPattern: (id: string) => void;
 };
 
 const MODE_WORD: Record<string, string> = { bus: "ônibus", brt: "BRT" };
@@ -55,12 +60,10 @@ function LineGroup({ title, lines, linha, onSelect }: { title: string; lines: Li
   );
 }
 
-export default function PanelLinhas({ index, buses, when, linha, onibus, onSelectLine, onClearLine, onSelectBus }: Props) {
+export default function PanelLinhas({ index, buses, when, linha, onibus, onSelectLine, onClearLine, onSelectBus, routes, route, onPattern }: Props) {
   const [query, setQuery] = useState("");
 
-  if (!index) return <p className="text-sm text-neblina">Carregando as linhas…</p>;
-
-  const matches = matchLines(index.lines, query);
+  const matches = matchLines(index?.lines ?? [], query);
   const brt = matches.filter((l) => l.mode === "brt");
   const others = matches.filter((l) => l.mode !== "brt");
   const q = query.trim();
@@ -96,6 +99,7 @@ export default function PanelLinhas({ index, buses, when, linha, onibus, onSelec
               ))}
             </ul>
           )}
+          <PanelRoute state={routes} view={route} onPattern={onPattern} />
         </section>
       )}
 
@@ -113,7 +117,7 @@ export default function PanelLinhas({ index, buses, when, linha, onibus, onSelec
         />
       </div>
 
-      {matches.length === 0 ? (
+      {!index ? <p className="text-sm text-neblina">Carregando as linhas…</p> : matches.length === 0 ? (
         <p className="text-sm text-neblina">Nenhuma linha começa com “{q}” {when}.</p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -122,7 +126,7 @@ export default function PanelLinhas({ index, buses, when, linha, onibus, onSelec
         </div>
       )}
 
-      {index.unidentified > 0 && q === "" && (
+      {index && index.unidentified > 0 && q === "" && (
         <p className="text-xs text-neblina">
           {formatCount(index.unidentified)} {index.unidentified === 1 ? "veículo sem linha identificada" : "veículos sem linha identificada"}.
         </p>

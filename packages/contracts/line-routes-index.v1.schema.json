@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "feed",
+    "lines"
+  ],
+  "properties": {
+    "schema": {
+      "const": "line-routes-index.v1"
+    },
+    "feed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "source",
+        "fetched_at",
+        "modified_at",
+        "start_date",
+        "end_date",
+        "attribution"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source": {
+          "const": "https://dados.mobilidade.rio/gtfs/schedule"
+        },
+        "fetched_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "start_date": {
+          "type": "string",
+          "pattern": "^(\\d{8})?$"
+        },
+        "end_date": {
+          "type": "string",
+          "pattern": "^(\\d{8})?$"
+        },
+        "attribution": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "line",
+          "file",
+          "patterns"
+        ],
+        "properties": {
+          "line": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "pattern": "^/gtfs/[a-f0-9]{64}/[a-f0-9]{64}\\.json$"
+          },
+          "patterns": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 1
+    }
+  }
+}

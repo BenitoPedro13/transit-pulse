@@ -163,6 +163,17 @@ live sources on 2026-10-12.
   their earliest raw minute, so a backfilled minute rebuilds its own hour and no other. Past hours
   older than the backfill window are `complete: true` and served `immutable`. A request still never
   queries. Measured in `docs/tasks/TASK-time-machine.md` §6.
+- **Selected-line geometry is a static projection (D3, built 2026-10-13).** User decision:
+  export files, rather than loading GTFS into Postgres. `apps/gtfs` conditionally captures the
+  SMTR ZIP into `packages/raw` (source `gtfs`) at most once per 24 h, then `packages/gtfs`
+  writes a manifest and content-addressed per-line JSON into the web's `public/gtfs/`.
+  Offline export reads the saved raw location; no database, broker or provider request is
+  involved. Viewers fetch only our static files. Exact `route_short_name` matches retain
+  all route/shape/stop-sequence variants; no vehicle is assigned a direction or snapped to
+  the shape. MapLibre draws the reference below deck.gl vehicles and replay trails. Feed
+  capture/validity and the historical limitation are disclosed in the line panel, with a
+  map label even on compact mobile. Generated files must accompany the web build and can
+  remain hosted after the live backend shuts down. Measurements: `docs/tasks/TASK-line-routes.md` §6.
 
 ## 6. Hosting and cost sketch
 

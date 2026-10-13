@@ -23,7 +23,7 @@ A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio cas
 It sits alongside `renewable-pulse` (polled energy feeds → broker → TimescaleDB),
 `apuracao-2026` (polled TSE feed → immutable S3 log → replay) and `flora`.
 
-**Status (2026-10-12): the ITS adapter, the positions consumer, the rebuild, the read-only API
+**Status (2026-10-13): the ITS adapter, the positions consumer, the rebuild, the read-only API
 and the dashboard (full-bleed map, letreiro, Agora/Linhas/Ônibus panel, table at `/tabela`) are built.** The repo has a Go module, a Next.js app,
 local Redpanda + TimescaleDB/PostGIS and a real-infrastructure test harness (`docs/tasks/TASK-scaffold.md`, done).
 `docs/tasks/TASK-source-inventory.md` is done: every Rio source was verified live and real
@@ -39,9 +39,16 @@ request never queries), the Rio basemap (`make tiles`), vehicles on MapLibre + d
 Table list, and a status strip that tells live, stale and failed apart; measurements in its §7. `docs/tasks/TASK-dashboard.md` (D1) is
 done: the screen became a full-bleed dashboard with the letreiro identity, line and bus selection,
 speed colours and the view in the URL; its results (contrast table, axe, fps) are in its §6. The time
-machine (D2, `docs/tasks/TASK-time-machine.md`) is built and browser-verified (2026-10-13): the `history-hour.v1` API, timeline, playback and trails pass T6 and T8–T11. The mobile panel has a labelled Expandir/Recolher control above the timeline; initial history loading waits for all requested hours to settle before clamping a shared minute. Of the four questions the inventory raised
+machine (D2, `docs/tasks/TASK-time-machine.md`) is built and browser-verified (2026-10-13): the `history-hour.v1` API, timeline, playback and trails pass T6 and T8–T11. The mobile panel has a labelled Expandir/Recolher control above the timeline; initial history loading waits for all requested hours to settle before clamping a shared minute.
+Static line routes (D3, `docs/tasks/TASK-line-routes.md`) are built: `apps/gtfs` captures the ZIP
+into the existing raw log and exports content-addressed per-line JSON. The dashboard draws
+reference geometry in MapLibre beneath animated vehicles/trails and provides destination
+variants and an ordered stop list. **User decision (2026-10-13): static files; no GTFS database
+tables or new API endpoints.** Run `make gtfs` before the web build; `make gtfs-export` is offline.
+Of the four questions the inventory raised
 (`docs/architecture.md` §10 #9–#12), #9 and #10 were answered on 2026-10-12 (supplier joins
-the identity; ITS API only). #11 and #12 are still open. Read in this order:
+the identity; ITS API only). #11 remains open; #12 is closed for reference geometry
+(the user accepts the published static feed). Read in this order:
 
 1. `docs/research/README.md`: the verified source inventory, one row per operator, plus
    measured volumes. Its "Findings that contradict or change the plan" section comes first.
@@ -114,6 +121,7 @@ upgrading (§2.0).
 | Web | **Next.js** 16.4.0 (App Router, Cache Components) + TanStack Query v5 (`@tanstack/react-query`), pnpm 11, Node 24; MapLibre GL 6.14.0 (ESM-only, worker URL set under Turbopack) + react-map-gl 8.1.3 + deck.gl 9.4.0 (`@deck.gl/maplibre`, overlaid mode); pmtiles 4.5.0 + `@protomaps/basemaps` 5.7.2 on a Protomaps Rio `.pmtiles` extract (`make tiles`, local; S3 + CloudFront with the AWS task); TanStack Table **v9** (`@tanstack/react-table` 9.2.8); **shadcn/ui** (CLI 4.21, Radix base, `button`, `tabs`, `toggle`, `toggle-group`, themed onto the CSS tokens in `app/globals.css`) + Tailwind v4 + `lucide-react`; **Archivo** (variable, `wdth` axis) for the UI and **Doto** (letreiro text only, ≥ 20 px) through `next/font/google`; **Zustand** 5 (`zustand/vanilla`, one store per mount) for the time machine's playhead only, `@deck.gl/geo-layers` (`TripsLayer`) for the replay trails; Vitest 5.0 for the pure rules (node environment) | **built** (`apps/web/`): dashboard (map, letreiro, panel), `/tabela`, status strip |
 | Test harness | testcontainers-go v0.44.0 starts real Redpanda and TimescaleDB (`packages/testharness`); real captures load through `packages/samples` | **scaffolded** |
 | Replay | Static export of chosen days on S3 + CloudFront | planned |
+| Static route geometry | `apps/gtfs` + `packages/gtfs`, Go stdlib ZIP/CSV; existing raw envelopes, two `line-routes*.v1` JSON contracts; generated web assets under `public/gtfs/`; MapLibre line/circle layers | **built** (D3); no new runtime dependency or database table |
 | Hosting | AWS `us-east-1`, Free-plan account `860897618882` (shared with renewable-pulse and Apuração; closes around 2027-03-27 or when the credits run out): one `t4g.small` Spot, Docker Compose, Caddy, Budgets alarm | planned (decided) |
 | Frontend rules | the user's global `~/.claude/CLAUDE.md`, unchanged | applies |
 
@@ -248,6 +256,7 @@ transit-pulse/
 │   ├── adapter-its/             # ITS API adapter: raw log first, then positions.v1 + feed-status.v1
 │   ├── consumer/                # positions.v1 + feed-status.v1 -> TimescaleDB, one transaction per batch
 │   ├── rebuild/                 # raw log -> TimescaleDB for a minute range (the same writes as the consumer)
+│   ├── gtfs/                    # conditional GTFS capture -> raw log -> static route/stops JSON
 │   ├── api/                     # read-only API: feed_status probe every 10 s -> in-memory snapshot (JSON + gzip)
 │   └── web/                     # Next.js app: the dashboard at /, the table at /tabela
 │       ├── app/                 # layout.tsx (fonts), page.tsx + tabela/page.tsx (Suspense around the client views), globals.css (the tokens), providers.tsx, get-query-client.ts
@@ -255,7 +264,7 @@ transit-pulse/
 │       ├── store/               # playback.ts: the time machine's Zustand store (per mount) and its pure transitions
 │       ├── hooks/               # every custom hook lives here, with the pure rules and their Vitest tests (testdata/ = a real, trimmed snapshot)
 │       ├── lib/                 # shadcn's utils.ts
-│       └── public/tiles/        # git-ignored: rio.pmtiles from `make tiles`
+│       └── public/              # git-ignored generated tiles/ (make tiles) and gtfs/ (make gtfs)
 ├── packages/
 │   ├── testharness/             # testcontainers-go: real Redpanda and TimescaleDB for tests
 │   ├── samples/                 # loads docs/research/samples/<name> for parser tests
@@ -263,6 +272,7 @@ transit-pulse/
 │   ├── event/                   # Position and FeedStatus Go types; Key() and Identity()
 │   ├── its/                     # raw ITS envelope -> events (Events, MinuteEvents) and feed statuses
 │   ├── store/                   # goose migrations, WritePositions / WriteFeedStatus, read helpers for tests
+│   ├── gtfs/                    # static route parser and publisher
 │   └── raw/                     # append-only raw log: hourly gzip files, byte-exact bodies
 ├── infra/postgres/initdb/       # 001-extensions.sql, shared by compose and the tests
 ├── scripts/idle-memory.sh       # median-of-3 idle memory per container
@@ -275,7 +285,7 @@ transit-pulse/
 Each Go binary arrives with its task as `apps/<name>/main.go` (`package main`, e.g.
 `apps/adapter-its`); shared Go code goes in `packages/<name>/`. A root pnpm workspace is
 added only when a second JS package exists. Make targets: `up`, `down`, `test`
-(Go, then the web's Vitest), `lint`, `fmt`, `dev`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`, `api`, `tiles`. No target runs `down -v`: deleting volumes is the
+(Go, then the web's Vitest), `lint`, `fmt`, `dev`, `web-dev`, `web-build`, `adapter-its`, `consumer`, `rebuild`, `api`, `tiles`, `gtfs`, `gtfs-export`. No target runs `down -v`: deleting volumes is the
 user's call. There is no CI yet (no remote; `docs/tasks/TASK-scaffold.md` §2.7).
 
 - **Samples:** keep small, representative captures in git (a single response, a trimmed

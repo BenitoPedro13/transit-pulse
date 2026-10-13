@@ -29,3 +29,6 @@ var/
 
 # Rio basemap extract: `make tiles` regenerates it
 apps/web/public/tiles/
+
+# Static GTFS projections: `make gtfs` or offline `make gtfs-export` regenerates them.
+apps/web/public/gtfs/
