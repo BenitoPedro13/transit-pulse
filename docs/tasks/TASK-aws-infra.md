@@ -36,8 +36,9 @@
   - a `t4g.small` Spot instance in `us-east-1c` with its own VPC, EIP `52.5.78.81`, and
     `renewable-pulse.duckdns.org`;
   - Spot vCPU quota 5 (`L-34B43A08`), of which renewable-pulse uses 2.
-- **There's no git remote and no CI** (`TASK-scaffold.md` §2.7), so renewable-pulse's GitHub
-  Actions + OIDC deploy doesn't apply.
+- **The remote exists** (`github.com/BenitoPedro13/transit-pulse`, public; found 2026-10-13) but
+  there's no CI yet. This task builds the Mac deploy scripts; `TASK-ci-cd.md` Part B runs the same
+  scripts from GitHub Actions with OIDC once this task's Phases 1, 2 and 4 are done.
 - **The web assumes it's served next to the API.** `next.config.ts` rewrites `/api/*` →
   `${API_ORIGIN ?? "http://127.0.0.1:8080"}` (`API_ORIGIN` already exists; its comment still says
   Caddy serves the web). `components/basemap.ts:72–77` reads `${origin}/tiles/rio.pmtiles`
@@ -263,7 +264,9 @@ infra/terraform/
 5. **The GTFS raw log is written on the Mac, not the box** (`make gtfs` runs only there). So
    `raw-sync.sh` takes its root, its S3 prefix, a seal age and a no-prune flag as arguments, and
    the Mac runs it as `make gtfs-raw-upload`: root `var/raw/gtfs`, prefix `raw/gtfs/`, seal age 0
-   (a GTFS hour file is written once per capture), never prune. `scripts/web-deploy.sh` (§2.7)
+   (a GTFS hour file is written once per capture), never prune. It also copies
+   `var/gtfs/state.json` to `s3://<ops>/gtfs/state.json`, so CI can rebuild `public/gtfs/` from
+   the raw log (`TASK-ci-cd.md` §2.2). `scripts/web-deploy.sh` (§2.7)
    runs it first, so a route export never reaches the public site before its raw ZIP is on S3 with
    a manifest line (invariant 2). It doesn't push metrics from the Mac.
 6. **Exit runbook** (architecture §7.1): `scripts/pull-raw.sh` on the Mac runs `aws s3 sync` of
@@ -371,7 +374,8 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
   is a separate, restartable process.
 - **One S3 object per poll:** at 1,440+ objects/day that's more PUTs and is under IA's 128 KB
   minimum (architecture §8). Hour files are kept.
-- **GitHub Actions + OIDC:** there's no remote. Revisit when the user creates one.
+- **GitHub Actions + OIDC in this task:** it's `TASK-ci-cd.md` Part B, on top of the scripts built
+  here, so the deploy works from the Mac first and recording isn't held up by CI.
 - **Route files on CloudFront next to the tiles:** 14 MB in about 500 small files fits the
   Vercel build easily, and they then outlive the AWS account with the site, as the replay must.
   Tiles go to CloudFront because they need `Range` and 43 MB per deploy.
