@@ -8,6 +8,10 @@
 > Rules for the executing session: every `[VERIFY: …]` is resolved against the live docs, the
 > console or the CLI before the code that depends on it is written, and the answer is recorded in
 > §6. Phases run in order. Each phase is committed when its checks in §5 pass.
+>
+> **Refreshed 2026-10-13** for what was built after it was written: the time machine (D2,
+> `GET /v1/history*`, `TASK-time-machine.md`) and the static line routes (D3, `public/gtfs/`,
+> `TASK-line-routes.md`). The changes are in §1, §2.0, §2.1, §2.4, §2.5, §2.7, §2.8, §4 and §5.
 
 ## 1. Current scenario
 
@@ -35,8 +39,24 @@
 - **There's no git remote and no CI** (`TASK-scaffold.md` §2.7), so renewable-pulse's GitHub
   Actions + OIDC deploy doesn't apply.
 - **The web assumes it's served next to the API.** `next.config.ts` rewrites `/api/*` →
-  `127.0.0.1:8080`. `live-map-canvas.tsx` reads `${origin}/tiles/rio.pmtiles` (git-ignored, from
-  `make tiles`) and Protomaps' hosted glyphs and sprites.
+  `${API_ORIGIN ?? "http://127.0.0.1:8080"}` (`API_ORIGIN` already exists; its comment still says
+  Caddy serves the web). `components/basemap.ts:72–77` reads `${origin}/tiles/rio.pmtiles`
+  (git-ignored, from `make tiles`, 43 MB) and Protomaps' hosted glyphs and sprites.
+- **The time machine (D2) reads the API too.** `hooks/use-history.ts` fetches `/api/v1/history`
+  (the index; `public, max-age=10, s-maxage=10`) and `/api/v1/history/{hour}` (one
+  `history-hour.v1` file per UTC hour; a closed hour older than 24 h is
+  `public, max-age=31536000, immutable`, the others `public, max-age=30, s-maxage=30`; ETag on
+  both; `apps/api/history.go:682`). `HISTORY_HOURS` (default 3) sets the window. Measured locally
+  (`TASK-time-machine.md` §6): peak API RSS 79 MB during the load of a 118-minute window, and an hour
+  file of 33 minutes is 427,591 B gzip, so a full hour is about 0.8–1.5 MB gzip. **A full 3 h
+  window on full traffic hasn't been measured**, and the api's limit below is 128m.
+- **The line routes (D3) are static files, not an API.** `make gtfs` (Mac, network, conditional
+  request) captures the SMTR ZIP into `var/raw/gtfs/v1/…` (one 25 MB hour file) and exports
+  `apps/web/public/gtfs/`: `index.json` plus 494 content-addressed files
+  `<feed-sha256>/<sha256>.json`, 14 MB in all. `hooks/use-line-routes.ts:27` fetches
+  `/gtfs/index.json`. The folder is git-ignored, Next serves `public/` with `max-age=0` by
+  default, and the box never runs `apps/gtfs` (user decision 2026-10-13: static files, no tables,
+  no endpoints).
 
 ## 2. Planned changes
 
@@ -44,7 +64,8 @@
 
 ```
  Browser ──HTTPS──▶ Vercel (apps/web, Hobby)
-                     ├─ /api/*   rewrite ──HTTPS──▶ Caddy on EC2 ──▶ api (in-memory snapshot)
+                     ├─ /api/*   rewrite ──HTTPS──▶ Caddy on EC2 ──▶ api (in-memory snapshot + history hours)
+                     ├─ /gtfs/*  static files in the Vercel build (D3; built on the Mac)
                      └─ tiles, glyphs, sprites ◀── CloudFront ◀── S3 (tiles bucket, private, OAC)
 
  EC2 t4g.small Spot, us-east-1, its own VPC, EIP, no SSH (SSM only)
@@ -82,7 +103,7 @@
 | CloudFront + tiles bucket (45 MB) | `[VERIFY: Free-plan CloudFront terms; the always-free 1 TB/month]` | ≈ USD 0 |
 | CloudWatch: 2 agent metrics + 2 custom metrics + 6 alarms | `[VERIFY]` | ≤ USD 2 |
 | ECR: 1 repo, a few ~20 MB images | | < USD 0.10 |
-| Vercel Hobby | free | USD 0 |
+| Vercel Hobby | free; traffic is the snapshot (≈ 10 s polls) + up to 3 history hours (≈ 3–4.5 MB gzip per time-machine session) + route files `[VERIFY: Hobby's monthly Fast Data Transfer and edge request allowances, and what happens on overrun: pause, not bill]` | USD 0 |
 | **Total** | | **≈ USD 14** |
 
 Together with renewable-pulse (~12) and Apuração (~40), that's about USD 66/month against the
@@ -185,8 +206,8 @@ infra/terraform/
 | timescaledb | same tag as `compose.yaml` (`pg18.6-ts2.30.2`), **pinned by digest** | 600m | data in `/data/pg`; `shared_buffers` and `work_mem` set explicitly for 600m `[VERIFY: timescaledb-ha image docs on tuning env vars vs a mounted postgresql.conf]` |
 | adapter-its | ECR `go:<sha>` | 128m | `RAW_DIR=/data/raw`, state in `/data/adapter`, `ITS_CONTACT` from SSM |
 | consumer | ECR `go:<sha>` | 192m | |
-| api | ECR `go:<sha>` | 128m | `API_ADDR=0.0.0.0:8080`, not published on the host |
-| caddy | `caddy:2` pinned | 64m | TLS for the API hostname; proxies `/v1/*` and `/healthz` to `api:8080` and nothing else |
+| api | ECR `go:<sha>` | 128m | `API_ADDR=0.0.0.0:8080`, not published on the host; `HISTORY_HOURS=3`. The 128m comes from the D2 budget (< 100 MB RSS); Phase 5 measures it on a full window, and the first OOM lowers `HISTORY_HOURS`, never raises the limit quietly |
+| caddy | `caddy:2` pinned | 64m | TLS for the API hostname; proxies `/v1/*` (snapshot and history) and `/healthz` to `api:8080` and nothing else; passes `Cache-Control`, `ETag` and `Content-Encoding` through unchanged |
 
 - The limits add up to 1.81 GiB of the box's ≈ 1.84 GiB, plus a 2 GiB swapfile (as in
   renewable-pulse). TimescaleDB gets 150m more than renewable-pulse because this project writes
@@ -239,7 +260,13 @@ infra/terraform/
    - `RawSyncSucceeded = 1` on each clean run;
    - `RawNewestFileAgeSeconds`: the age of the newest *write* under `/data/raw`. It goes up when
      the adapter stalls, even if S3 is fine.
-5. **Exit runbook** (architecture §7.1): `scripts/pull-raw.sh` on the Mac runs `aws s3 sync` of
+5. **The GTFS raw log is written on the Mac, not the box** (`make gtfs` runs only there). So
+   `raw-sync.sh` takes its root, its S3 prefix, a seal age and a no-prune flag as arguments, and
+   the Mac runs it as `make gtfs-raw-upload`: root `var/raw/gtfs`, prefix `raw/gtfs/`, seal age 0
+   (a GTFS hour file is written once per capture), never prune. `scripts/web-deploy.sh` (§2.7)
+   runs it first, so a route export never reaches the public site before its raw ZIP is on S3 with
+   a manifest line (invariant 2). It doesn't push metrics from the Mac.
+6. **Exit runbook** (architecture §7.1): `scripts/pull-raw.sh` on the Mac runs `aws s3 sync` of
    `raw/` and `manifests/` to a local directory, then checks every line of every manifest with
    `shasum -a 256`. It prints the counts, and exits non-zero on any mismatch or missing file.
    It's run once in Phase 5 as a drill, then at least monthly, and once more before the account
@@ -261,19 +288,42 @@ Each alarm is triggered once with `aws cloudwatch set-alarm-state`, and the emai
 ### 2.7 Phase 4: web on Vercel, tiles on CloudFront
 
 - **Vercel project** for `apps/web`, deployed from the Mac with the Vercel CLI (there's no git
-  remote) `[VERIFY: current Vercel CLI deploy flow for a pnpm project in a subdirectory, Node 24]`.
-- **`next.config.ts`:** the rewrite destination comes from `API_ORIGIN`, which defaults to
-  `http://127.0.0.1:8080` so local dev is unchanged. On Vercel it's
-  `https://transit-pulse.duckdns.org`. Fix the comment that says Caddy serves the web.
+  remote). **Build locally, upload the output:** `vercel build --prod`, then
+  `vercel deploy --prebuilt --prod`. That way Vercel never needs Go or the network to make
+  `public/gtfs/`, and the question of whether the CLI uploads git-ignored files doesn't arise
+  `[VERIFY: current Vercel CLI docs for `build` / `deploy --prebuilt` with a pnpm project in a
+  subdirectory, Node 24, and that `public/` lands in `.vercel/output/static/`]`.
+- **`make web-deploy`** → `scripts/web-deploy.sh`:
+  1. refuse to run if the git tree is dirty, or if `apps/web/public/gtfs/index.json` is missing
+     (tell the user to run `make gtfs`, or `make gtfs-export` offline);
+  2. `make gtfs-raw-upload` (§2.5 item 5);
+  3. `vercel build --prod` in `apps/web` with `API_ORIGIN` and `NEXT_PUBLIC_TILES_BASE_URL` set
+     for production `[VERIFY: whether `vercel build` reads these from `vercel env pull` or the
+     shell; set them as Vercel project env vars once and record which]`;
+  4. delete `.vercel/output/static/tiles/`: the basemap is served from CloudFront, so the 43 MB
+     local extract is never uploaded to Vercel;
+  5. `vercel deploy --prebuilt --prod` and print the URL.
+- **`next.config.ts`:** the rewrite destination already comes from `API_ORIGIN`. On Vercel it's
+  `https://transit-pulse.duckdns.org`. Fix the comment that says Caddy serves the web. Add
+  `headers()`:
+  - `/gtfs/:feed/:file` → `public, max-age=31536000, immutable` (the paths are content hashes,
+    so a new export is a new URL);
+  - `/gtfs/index.json` → `public, max-age=0, must-revalidate` (it changes with each export).
+  - `[VERIFY: Next 16 `headers()` applies to `public/` files on Vercel; read
+    `node_modules/next/dist/docs/` for `headers` first, as `apps/web/AGENTS.md` says]`
 - **Caching keeps readers off the box (invariant 5).**
-  - The API already sends `Cache-Control: public, max-age=10` and an `ETag`. Add
-    `s-maxage=10` for shared caches.
+  - The snapshot already sends `Cache-Control: public, max-age=10` and an `ETag`
+    (`apps/api/server.go:159`). Add `s-maxage=10` for shared caches. The history endpoints
+    already send `s-maxage` (index 10 s, open hours 30 s) or `immutable` (closed hours); leave
+    them as they are.
   - Check that Vercel's CDN caches the rewritten response, so a traffic spike reaches the box
     at most once per 10 s per region, not once per viewer.
   - `[VERIFY: Vercel docs on caching responses of external rewrites, and that gzip
     Content-Encoding and ETag/304 pass through]`
   - If Vercel doesn't cache them, record that here. The API is in-memory and costs
-    microseconds, but then a spike reaches the box, and §5 must measure it.
+    microseconds, but then a spike reaches the box, and §5 must measure it. History hours matter
+    most: they're ≈ 1 MB each, and the box's egress is the cost (EC2 data transfer out
+    `[VERIFY: price and the Free-plan allowance]`).
 - **Tiles:** a new variable `NEXT_PUBLIC_TILES_BASE_URL` gives the base URL for `rio.pmtiles`,
   `glyphs/` and `sprites/`. It defaults to the current local paths, so `make web-dev` is
   unchanged. `make tiles-upload` copies the extract and assets to the tiles bucket.
@@ -292,6 +342,11 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
      recorded.
 2. **After 24 h live:**
    - bytes per row in `positions` (re-measures architecture §8's 289 B);
+   - **the history window on full traffic** (D2's budget was measured on 118 minutes on macOS):
+     api RSS right after a restart (the full 3 h load) and steady state, `docker stats`, median
+     of 3 restarts; the load's duration from the api's logs; each closed hour's gzip size
+     (D2 target ≤ 1.5 MB). Pass: peak RSS < 100 MB. Otherwise set `HISTORY_HOURS=2`, record it, and
+     tell the user;
    - the snapshot query's time on a full-day chunk, median of 3 refreshes from the api's logs.
    - If the median is above 5 s, stop and plan the index or a summary table. Don't add it in
      this task.
@@ -317,6 +372,16 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
 - **One S3 object per poll:** at 1,440+ objects/day that's more PUTs and is under IA's 128 KB
   minimum (architecture §8). Hour files are kept.
 - **GitHub Actions + OIDC:** there's no remote. Revisit when the user creates one.
+- **Route files on CloudFront next to the tiles:** 14 MB in about 500 small files fits the
+  Vercel build easily, and they then outlive the AWS account with the site, as the replay must.
+  Tiles go to CloudFront because they need `Range` and 43 MB per deploy.
+- **Running `apps/gtfs` on the box:** the feed hasn't changed since 2026-06-10 and the export is
+  per deploy anyway, so a schedule on the box would add a job and gain nothing.
+- **Building on Vercel (`vercel deploy` from source):** it would need Go and the provider during
+  the build, which means a provider request per deploy, from Vercel.
+- **The static replay export (architecture §7, §9):** out of scope. This task only records the
+  replay days into the raw log. The export reuses `history-hour.v1` and gets its own task once a
+  replay day is in S3.
 - **`pg_dump` backups + DLM snapshots:** the database is a projection, and recovery is the
   rebuild (§2.8.4).
 
@@ -344,11 +409,12 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
 | `infra/aws/cloudwatch-agent.json` | new | disk `/data`, memory |
 | `Dockerfile`, `.dockerignore` | new | one image, four binaries |
 | `scripts/deploy.sh`, `scripts/pull-raw.sh` | new | Mac side |
-| `Makefile` | edit | `deploy`, `tiles-upload`, `pull-raw` |
-| `apps/api/server.go` | edit | `s-maxage=10` on the snapshot |
-| `apps/web/next.config.ts` | edit | `API_ORIGIN`; fix the comment |
-| `apps/web/components/live-map-canvas.tsx` | edit | `NEXT_PUBLIC_TILES_BASE_URL` for pmtiles, glyphs, sprites |
-| `.env.example` | edit | `API_ORIGIN`, `NEXT_PUBLIC_TILES_BASE_URL`, deploy variables |
+| `scripts/web-deploy.sh` | new | §2.7: GTFS raw upload, `vercel build`, drop `tiles/`, `deploy --prebuilt` |
+| `Makefile` | edit | `deploy`, `web-deploy`, `gtfs-raw-upload`, `tiles-upload`, `pull-raw` |
+| `apps/api/server.go` | edit | `s-maxage=10` on the snapshot (history headers unchanged) |
+| `apps/web/next.config.ts` | edit | fix the Caddy comment; `headers()` for `/gtfs/*` |
+| `apps/web/components/basemap.ts` | edit | `NEXT_PUBLIC_TILES_BASE_URL` for pmtiles, glyphs, sprites |
+| `.env.example` | edit | `API_ORIGIN` (production value documented), `NEXT_PUBLIC_TILES_BASE_URL`, `HISTORY_HOURS` in prod, deploy variables |
 | `.gitignore` | edit | `*.tfstate*`, `.terraform/`, `*.tfvars` except `*.tfvars.example`, `.vercel/` |
 | `CLAUDE.md` | edit | stack table (Hosting, Raw log, Web), the web on Vercel, the layout tree, status line |
 | `docs/architecture.md` | edit | §6 (fallback type, real costs), §7.1 (pull-raw), §10 #8 (glyphs and sprites resolved) |
@@ -391,6 +457,15 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
     `rio.pmtiles` from CloudFront with `206`;
   - 2 requests within 10 s from one location: the second shows a Vercel cache hit (record the
     header);
+  - the same for `/api/v1/history` and an open hour; a closed hour is served with
+    `immutable` and its second request is a cache hit; a hit's body is still gzip and its ETag
+    matches the box's;
+  - the time machine plays the last 3 h on the Vercel URL (60×, start to newest minute), with
+    failed minutes drawn as gaps, as in D2's T6;
+  - picking a line draws its route and stops; `/gtfs/index.json` is `max-age=0` and a route file
+    is `immutable` (record both headers); `.vercel/output/static/tiles/` was absent from the
+    upload;
+  - S3 holds `raw/gtfs/v1/…` with a manifest line whose SHA-256 matches the Mac's file;
   - axe reports 0 violations on the deployed URL.
 - **Phase 5:** §2.8 items 1–5, each recorded with numbers in §6.
 - **Cost:** after 7 days, Cost Explorer's daily run rate × 30 for `project=transit-pulse` is
