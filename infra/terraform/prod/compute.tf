@@ -13,7 +13,7 @@ resource "aws_ebs_volume" "data" {
   encrypted         = true
 
   tags = {
-    Name   = "transit-pulse-data"
+    Name = "transit-pulse-data"
     Role = "data"
   }
 
