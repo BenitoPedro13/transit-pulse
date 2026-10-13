@@ -478,3 +478,35 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
 ## 6. Results
 
 *(Filled in by the executing session, phase by phase.)*
+
+### Phase 0 (2026-10-13)
+
+- **Identity:** `aws sts get-caller-identity` → `arn:aws:iam::860897618882:user/benito-admin`.
+- **Prerequisite:** `TASK-replay-flake.md` has its Results section filled; treated as done.
+- **Spot price, last 24 h, Linux, USD/h (min–max):**
+
+  | AZ | t4g.small | m7i-flex.large |
+  |---|---|---|
+  | us-east-1a | 0.0076–0.0078 | 0.0399–0.0405 |
+  | us-east-1b | 0.0067 | 0.0401–0.0403 |
+  | **us-east-1c** | **0.0064–0.0067** | 0.0397–0.0420 |
+  | us-east-1d | 0.0078–0.0080 | 0.0444–0.0455 |
+  | us-east-1f | 0.0090–0.0092 | 0.0373–0.0375 |
+
+  **AZ chosen (user, 2026-10-13): `us-east-1c`.** The data volume is bound to it. renewable-pulse
+  (`i-044f3e0dad659d507`, `t4g.small`, running) is in the same AZ, in its own VPC.
+- **Fallback type:** `m7i-flex.large` (x86, 2 vCPU, 8 GiB) Spot is 0.0397–0.0420 USD/h in
+  `us-east-1c`, about 6× `t4g.small` (≈ USD 29/month). Needs a `linux/amd64` image if ever used.
+- **Quota `L-34B43A08`:** 8 vCPU (≥ 4 needed; renewable-pulse uses 2).
+- **Budgets (user decision, 2026-10-13: add both).** `renewable-pulse-monthly` (USD 20) has **no
+  filter**, so it was already account-wide and below the projects' combined ~USD 66. Created, outside
+  Terraform, with the alerts of `renewable-pulse-monthly` (actual 50/85/100%, forecast 100%,
+  `IncludeCredit=false`, email `benitopedro21@outlook.com`):
+  - `transit-pulse-monthly`: USD 20, filter `TagKeyValue user:project$transit-pulse`. The tag only
+    matches once `project` is **activated as a cost allocation tag** in Billing (up to 24 h to
+    appear): `[VERIFY: activate it after Phase 1 creates tagged resources]`;
+  - `account-total`: USD 80, no filter.
+  `renewable-pulse-monthly` is left as it was.
+- **Credits remaining:** not readable from the CLI (Cost Explorer shows October usage of ≈ USD 0 net
+  of credit). `[VERIFY: user reads Billing console → Credits and records the balance here before
+  Phase 2; if the month the credits run out is before 2026-12-31, tell the user]`
