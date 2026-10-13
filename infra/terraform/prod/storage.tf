@@ -1,4 +1,6 @@
-# Three buckets (TASK-aws-infra.md §2.3). All private, SSE-S3, public access blocked.
+# Three buckets (TASK-aws-infra.md §2.3). raw and ops are private. tiles is public-read: CloudFront
+# was refused ("account must be verified", 2026-10-13), so the map's tiles, glyphs and sprites are
+# served straight from S3 (it honours Range natively). They are public map data, nothing else lives there.
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
@@ -28,7 +30,7 @@ resource "aws_s3_bucket" "tiles" {
 }
 
 resource "aws_s3_bucket_public_access_block" "all" {
-  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id, tiles = aws_s3_bucket.tiles.id }
+  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id }
 
   bucket                  = each.value
   block_public_acls       = true
@@ -38,7 +40,7 @@ resource "aws_s3_bucket_public_access_block" "all" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "all" {
-  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id, tiles = aws_s3_bucket.tiles.id }
+  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id }
 
   bucket = each.value
 
@@ -48,7 +50,7 @@ resource "aws_s3_bucket_ownership_controls" "all" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "all" {
-  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id, tiles = aws_s3_bucket.tiles.id }
+  for_each = { raw = aws_s3_bucket.raw.id, ops = aws_s3_bucket.ops.id }
 
   bucket = each.value
 
@@ -120,103 +122,63 @@ resource "aws_s3_bucket_lifecycle_configuration" "ops" {
   }
 }
 
-# --- Tiles: private bucket behind CloudFront with Origin Access Control -----------------------
+# --- Tiles: public-read bucket, CORS for pmtiles' Range requests ------------------------------
 
-resource "aws_cloudfront_origin_access_control" "tiles" {
-  name                              = "transit-pulse-tiles"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
+resource "aws_s3_bucket_public_access_block" "tiles" {
+  bucket = aws_s3_bucket.tiles.id
+
+  block_public_acls       = true
+  ignore_public_acls      = true
+  block_public_policy     = false
+  restrict_public_buckets = false
 }
 
-# CORS for pmtiles' Range requests. Expose Content-Range/Content-Length/ETag so the client can
-# read the range response.
-resource "aws_cloudfront_response_headers_policy" "tiles" {
-  name = "transit-pulse-tiles-cors"
+resource "aws_s3_bucket_ownership_controls" "tiles" {
+  bucket = aws_s3_bucket.tiles.id
 
-  cors_config {
-    access_control_allow_credentials = false
-    origin_override                  = true
-
-    access_control_allow_headers {
-      items = ["*"]
-    }
-
-    access_control_allow_methods {
-      items = ["GET", "HEAD", "OPTIONS"]
-    }
-
-    access_control_allow_origins {
-      items = var.tiles_cors_origins
-    }
-
-    access_control_expose_headers {
-      items = ["Content-Range", "Content-Length", "ETag"]
-    }
-
-    access_control_max_age_sec = 86400
+  rule {
+    object_ownership = "BucketOwnerEnforced"
   }
 }
 
-# AWS-managed "CachingOptimized" cache policy.
-data "aws_cloudfront_cache_policy" "optimized" {
-  name = "Managed-CachingOptimized"
-}
+resource "aws_s3_bucket_server_side_encryption_configuration" "tiles" {
+  bucket = aws_s3_bucket.tiles.id
 
-resource "aws_cloudfront_distribution" "tiles" {
-  enabled         = true
-  comment         = "transit-pulse tiles, glyphs and sprites"
-  price_class     = "PriceClass_100"
-  http_version    = "http2and3"
-  is_ipv6_enabled = true
-
-  origin {
-    domain_name              = aws_s3_bucket.tiles.bucket_regional_domain_name
-    origin_id                = "tiles"
-    origin_access_control_id = aws_cloudfront_origin_access_control.tiles.id
-  }
-
-  default_cache_behavior {
-    target_origin_id           = "tiles"
-    viewer_protocol_policy     = "redirect-to-https"
-    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
-    cached_methods             = ["GET", "HEAD"]
-    compress                   = true
-    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.tiles.id
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
-
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
 }
 
-data "aws_iam_policy_document" "tiles_bucket" {
+data "aws_iam_policy_document" "tiles_public" {
   statement {
-    sid       = "CloudFrontRead"
+    sid       = "PublicRead"
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.tiles.arn}/*"]
 
     principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.tiles.arn]
+      type        = "*"
+      identifiers = ["*"]
     }
   }
 }
 
 resource "aws_s3_bucket_policy" "tiles" {
   bucket = aws_s3_bucket.tiles.id
-  policy = data.aws_iam_policy_document.tiles_bucket.json
+  policy = data.aws_iam_policy_document.tiles_public.json
+
+  depends_on = [aws_s3_bucket_public_access_block.tiles]
+}
+
+resource "aws_s3_bucket_cors_configuration" "tiles" {
+  bucket = aws_s3_bucket.tiles.id
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = var.tiles_cors_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["Content-Range", "Content-Length", "ETag"]
+    max_age_seconds = 86400
+  }
 }

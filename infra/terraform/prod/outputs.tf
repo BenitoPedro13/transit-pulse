@@ -24,7 +24,7 @@ output "tiles_bucket" {
 
 output "tiles_base_url" {
   description = "Value for NEXT_PUBLIC_TILES_BASE_URL"
-  value       = "https://${aws_cloudfront_distribution.tiles.domain_name}"
+  value       = "https://${aws_s3_bucket.tiles.bucket_regional_domain_name}"
 }
 
 output "ssm_session_command" {
