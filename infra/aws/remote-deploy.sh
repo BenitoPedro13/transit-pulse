@@ -37,6 +37,18 @@ CADDYFILE_SHA256=$(sha256sum "${REL}/infra/aws/Caddyfile" | cut -d' ' -f1)
 ENV
 umask 022
 
+# --- raw log shipping (docs/tasks/TASK-aws-infra.md §2.5) -------------------------------------
+echo "RAW_BUCKET=transit-pulse-raw-${ACCOUNT}" > "${BASE}/raw-sync.env"
+install -m 0644 "${REL}/infra/aws/raw-sync.service" /etc/systemd/system/raw-sync.service
+install -m 0644 "${REL}/infra/aws/raw-sync.timer" /etc/systemd/system/raw-sync.timer
+systemctl daemon-reload
+systemctl enable --now raw-sync.timer
+
+# --- CloudWatch agent: memory and /data usage (alarms are in Terraform) --------------------------
+if ! rpm -q amazon-cloudwatch-agent >/dev/null 2>&1; then dnf install -y amazon-cloudwatch-agent >/dev/null; fi
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+  -c "file:${REL}/infra/aws/cloudwatch-agent.json" >/dev/null
+
 aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${ECR}" >/dev/null
 cd "${REL}"
 DC=(docker compose --project-directory "${REL}" --env-file "${BASE}/.env" -f "${REL}/infra/aws/compose.prod.yml")
