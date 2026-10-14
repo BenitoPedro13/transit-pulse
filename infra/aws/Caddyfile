@@ -1,0 +1,14 @@
+# TLS for the API hostname only (docs/tasks/TASK-aws-infra.md §2.4). Caddy proxies the snapshot,
+# the history files and the health check, and nothing else. It never re-encodes: the API already
+# sends gzip, and Cache-Control, ETag and Content-Encoding pass through unchanged.
+{$API_HOST} {
+	handle /v1/* {
+		reverse_proxy api:8080
+	}
+	handle /healthz {
+		reverse_proxy api:8080
+	}
+	handle {
+		respond "not found" 404
+	}
+}

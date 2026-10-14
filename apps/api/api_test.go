@@ -445,7 +445,7 @@ func TestSnapshotOnRealData(t *testing.T) {
 	})
 
 	t.Run("headers, 304 and gzip", func(t *testing.T) {
-		if cc := first.Header().Get("Cache-Control"); cc != "public, max-age=10" {
+		if cc := first.Header().Get("Cache-Control"); cc != "public, max-age=10, s-maxage=10" {
 			t.Errorf("Cache-Control = %q", cc)
 		}
 		etag := first.Header().Get("ETag")

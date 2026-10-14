@@ -1,0 +1,8 @@
+.git
+var
+docs
+infra
+scripts
+apps/web
+**/node_modules
+**/*_test.go

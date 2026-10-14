@@ -1,4 +1,4 @@
-.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles gtfs gtfs-export
+.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles gtfs gtfs-export deploy
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -83,3 +83,8 @@ tiles:
 	test -n "$(TILES_BUILD)"
 	mkdir -p apps/web/public/tiles
 	pmtiles extract https://build.protomaps.com/$(TILES_BUILD) apps/web/public/tiles/rio.pmtiles --bbox=$(TILES_BBOX) --maxzoom=15 2>&1 | grep -E 'Completed|Extract|rror'
+
+# Build the arm64 image, push it to ECR (tag = git SHA), upload infra/aws and run remote-deploy.sh on
+# the box through SSM. Refuses a dirty tree. Needs `aws login` and Docker (TASK-aws-infra.md §2.4).
+deploy:
+	scripts/deploy.sh

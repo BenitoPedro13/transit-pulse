@@ -1,0 +1,118 @@
+name: transit-pulse
+
+# Production stack for the one t4g.small Spot box (docs/tasks/TASK-aws-infra.md §2.4). Local
+# compose.yaml is unchanged. No port except Caddy's 80/443 is published on the host.
+# The Go services run on distroless (no shell, no curl), so they have no container healthcheck:
+# restart: unless-stopped brings them back, and remote-deploy.sh checks https://<host>/healthz.
+# Limits add up to 1.81 GiB; the box has a 2 GiB swapfile. A first OOM kill is investigated,
+# never fixed by quietly raising a limit.
+
+x-go: &go
+  image: ${IMAGE:?set in .env by remote-deploy.sh}
+  restart: unless-stopped
+  networks: [transit-pulse]
+
+services:
+  redpanda:
+    # Same tag as compose.yaml and packages/testharness; pinned by digest here.
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.4@sha256:c98c2f04a751e6646012cc701bac5183252cee44c88ba1dfa412e4c7124f2e89
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092
+      - --advertise-kafka-addr internal://redpanda:9092
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --memory 512M
+      - --default-log-level=info
+    restart: unless-stopped
+    volumes:
+      - /data/redpanda:/var/lib/redpanda/data
+    mem_limit: 700m
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [transit-pulse]
+
+  timescaledb:
+    # Same tag as compose.yaml and packages/testharness; pinned by digest here. The image's own
+    # timescaledb-tune init script sizes shared_buffers and friends from the cgroup memory limit
+    # (verified 2026-10-13 in 001_timescaledb_tune.sh), so mem_limit below is the tuning input.
+    image: timescale/timescaledb-ha:pg18.6-ts2.30.2@sha256:7d352e92884862549363b96d2b791c31fcd941e570308780890b27ae1449c829
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: transit_pulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: transit_pulse
+      TS_TUNE_NUM_CPUS: "2"
+    volumes:
+      - /data/pg:/home/postgres/pgdata
+      - ./infra/postgres/initdb/001-extensions.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
+    mem_limit: 600m
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [transit-pulse]
+
+  adapter-its:
+    <<: *go
+    command: ["/app/adapter-its"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      RAW_DIR: /data/raw
+      ITS_CONTACT: ${ITS_CONTACT:-}
+    volumes:
+      - /data/raw:/data/raw
+    mem_limit: 128m
+    depends_on:
+      redpanda: {condition: service_healthy}
+
+  consumer:
+    <<: *go
+    command: ["/app/consumer"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      DATABASE_URL: ${DATABASE_URL:?}
+    mem_limit: 192m
+    depends_on:
+      redpanda: {condition: service_healthy}
+      timescaledb: {condition: service_healthy}
+
+  api:
+    <<: *go
+    command: ["/app/api"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?}
+      API_ADDR: 0.0.0.0:8080
+      HISTORY_HOURS: ${HISTORY_HOURS:-3}
+    mem_limit: 128m
+    depends_on:
+      timescaledb: {condition: service_healthy}
+
+  caddy:
+    image: caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_HOST: ${API_HOST:?}
+      # A Caddyfile change changes this value, which recreates the container (renewable-pulse's
+      # reload bug: a bind-mounted file edit alone is not picked up).
+      CADDYFILE_SHA256: ${CADDYFILE_SHA256:?}
+    volumes:
+      - ./infra/aws/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /data/caddy:/data
+    mem_limit: 64m
+    depends_on: [api]
+    networks: [transit-pulse]
+
+networks:
+  transit-pulse:
+    name: transit-pulse

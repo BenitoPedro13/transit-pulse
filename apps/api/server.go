@@ -156,7 +156,7 @@ func (s *Server) handleLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("ETag", snap.ETag)
-	h.Set("Cache-Control", "public, max-age=10")
+	h.Set("Cache-Control", "public, max-age=10, s-maxage=10")
 	h.Set("Vary", "Accept-Encoding")
 	if etagMatches(r.Header.Get("If-None-Match"), snap.ETag) {
 		w.WriteHeader(http.StatusNotModified)
