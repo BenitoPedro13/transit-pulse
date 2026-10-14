@@ -568,3 +568,36 @@ Medians of 3 where it's a number (CLAUDE.md "Tests").
   - `s-maxage=10` added to the snapshot in the first image;
   - timescaledb sizing: the image's own tune script reads the cgroup limit (verified in
     `001_timescaledb_tune.sh`), so `mem_limit: 600m` is the tuning input.
+
+### Phase 4, first deploy (2026-10-14)
+
+- **Public URL:** `https://transit-pulse-tau.vercel.app` (Vercel project `transit-pulse`, team
+  `benito-3af53aa4`, built locally with `vercel build --prod`, uploaded with
+  `vercel deploy --prebuilt --prod`; `.vercel/output/static/tiles/` removed before the upload).
+  **`transit-pulse.vercel.app` is someone else's app: do not use it.** The duckdns name can't carry the
+  page: it points at the box, which the rewrite needs.
+- **User decisions (2026-10-14):** the site is public, so Deployment Protection (`ssoProtection`) was
+  turned off through the Vercel API; "the dashboard on the live domain" was answered with the Vercel
+  URL. `enableExternalRewriteCaching` was set to `true` on the project.
+- **Env:** `API_ORIGIN` and `NEXT_PUBLIC_TILES_BASE_URL` were read from the shell by `vercel build`
+  (not stored as project env vars): the next deploy must pass them again, so `scripts/web-deploy.sh`
+  has to set them.
+- **Tiles:** `rio.pmtiles` (44,628,646 B) is on the public S3 tiles bucket. A `Range: 0-15` request
+  returned `206 Partial Content` with `Content-Range: bytes 0-15/44628646` and
+  `Access-Control-Allow-Origin: *`. Glyphs and sprites still come from Protomaps' hosted assets
+  (architecture §10 #8 stays open).
+- **Checked from the command line:**
+  - `/`, `/tabela`, `/api/v1/vehicles/latest` (68,395 B gzip), `/api/v1/history` and `/gtfs/index.json`
+    return 200 on the public URL;
+  - two snapshot requests in a row: `x-vercel-cache: HIT`, `age: 1`, `content-encoding: gzip`, the
+    same ETag as the box (`W/"2026-10-14T00:33:00Z.2026-10-14T00:35:11Z"`);
+  - `/gtfs/index.json` is `max-age=0, must-revalidate` (Next's default for `public/`).
+- **Not done yet:** the browser checks (map renders, `206` from S3 in the network panel, time machine,
+  line route and stops, axe 0 violations); `Cache-Control: immutable` on `/gtfs/:feed/:file`
+  (`next.config.ts` `headers()`); a closed history hour served as `immutable` and cached;
+  `scripts/web-deploy.sh` and the `make web-deploy`, `tiles-upload` and `gtfs-raw-upload` targets.
+- **GTFS raw file on S3:** `raw/gtfs/v1/2026/10/13/22.raw.gz` (25,289,339 B), manifest
+  `manifests/gtfs/2026/10/13.sha256` with SHA-256 `4f3217534d3327d1…df0cbb7`, checked by downloading
+  the object and hashing it (matches the Mac's file). The upload was multipart, so S3's checksum is
+  composite (`…-4`): to compare against `head-object` directly the CLI's `multipart_threshold` must
+  be above the file size (as the §2.5 `[VERIFY]` expected).
