@@ -15,7 +15,8 @@
 **Operational update (2026-10-29):** /replay and /replay/tabela serve a compact, real recorded
 window without API requests. Live collection remains available; periodic verified S3 shipping
 and four-day server pruning are enabled. Full archives stay in S3: the user explicitly
-declined bulk Mac downloads. See docs/replay.md. Next.js is patched to 16.4.3.
+declined bulk Mac downloads. Vercel Git builds use apps/web as Root Directory and restore only
+checksum-pinned compact public assets through vercel-build. See docs/replay.md. Next.js is patched to 16.4.3.
 
 
 A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio case study in

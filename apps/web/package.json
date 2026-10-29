@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "assets:prepare": "node scripts/public-assets.mjs",
+    "vercel-build": "pnpm assets:prepare && next build",
+    "test:assets": "node --test scripts/public-assets.test.mjs"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",

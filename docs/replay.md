@@ -18,8 +18,10 @@ The packaged replay contains 225,286 sampled fixes. Its directory is approximate
 The hour files preserve their partial-hour boundaries; missing minutes outside the observed
 window are not presented as a zero fleet. This is not a complete day or a Réveillon capture.
 
-Generated files are deliberately ignored by Git and included in the prebuilt Vercel artifact.
-The deployment must include the whole capture folder, its capture.json and SHA256SUMS.
+Generated files are deliberately ignored by Git. Vercel Git builds run the app's vercel-build
+script, which downloads the compact release pinned in apps/web/assets-release.json and verifies
+the bundle and every file before installing the complete replay and GTFS directories in public/.
+The deployment includes the whole capture folder, its capture.json and SHA256SUMS.
 Never overwrite a published capture under the same name; use a new capture id for new bytes.
 
 ## Export
@@ -78,3 +80,28 @@ Python shipping script syntax and remote-deploy shell syntax passed. Server S3 o
 periodic service were verified through SSM. Browser reports/screenshots are small local
 operations evidence outside Git. A pre-existing broader dependency audit has other advisories;
 the targeted Next.js patch is not a claim that every dependency is now vulnerability-free.
+
+## Reproducible Vercel Git builds
+The existing project's Root Directory is apps/web (not the Go repository root), framework Next.js,
+Node 24.x, with default install/build commands. package.json pins pnpm and provides vercel-build.
+Preview and production project variables both contain:
+- API_ORIGIN=https://transit-pulse.duckdns.org
+- NEXT_PUBLIC_TILES_BASE_URL=https://transit-pulse-tiles-860897618882.s3.us-east-1.amazonaws.com
+
+The existing public tiles bucket also holds the content-addressed web-releases/<sha256>.json.gz
+object. It contains 502 already-public replay/GTFS projection files: 21,845,208 expanded bytes,
+6,264,515 downloaded bytes. It contains no raw logs or map tile archive. The map reads rio.pmtiles
+from the existing public S3 endpoint; no 43 MB tile copy is needed in the Git build.
+A build fails on unavailable/corrupt assets rather than deploying an empty replay.
+This release still depends on the existing AWS account; preserve/migrate it with the archive before
+the Free plan expires. Existing deployed replay files do not request this bundle at runtime.
+
+To publish a new compact release after exporting real data and GTFS:
+1. In apps/web, run node scripts/public-assets.mjs --pack /absolute/path/to/new-release.
+2. Upload the generated <sha256>.json.gz to the existing tiles bucket under web-releases/,
+   with content type application/gzip, immutable cache control, and If-None-Match: *.
+   Never upload raw recordings to this public bucket.
+3. Copy the generated assets-release.json into apps/web/assets-release.json and review its inventory.
+4. Run pnpm assets:prepare, pnpm test:assets and the ordinary web checks, then commit the pin.
+   A push creates a fresh Git preview. Root Directory is a Vercel project setting, not inferred
+   from a local CLI working directory. Run repo-based CLI deployments from the repository root.

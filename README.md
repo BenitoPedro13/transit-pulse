@@ -129,3 +129,5 @@ prints the median idle memory of the two containers.
 Layout: deployables in `apps/` (`apps/web`, and each Go binary as `apps/<name>`), shared code
 in `packages/` (`testharness`, `samples`, `contracts`, `event`, `raw`, `its`, `store`). One Go
 module at the root. Go binaries today: `adapter-its`, `consumer`, `rebuild`, `api`.
+
+Vercel Git builds use Root Directory apps/web; vercel-build restores checksum-pinned compact replay/GTFS assets before Next.js builds. See [deployment details](docs/replay.md#reproducible-vercel-git-builds).
