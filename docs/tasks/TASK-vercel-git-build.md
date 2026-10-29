@@ -25,4 +25,12 @@ Generated replay and GTFS projections are ignored, so a successful compile alone
   Bundle SHA-256: 0aba4d2803c349530bbc796e3598f4130d30e425e2b9b34059fa14a8791730c7.
 - Empty-directory preparation downloaded and verified all 502 files (21,845,208 expanded bytes).
 - 106 web tests and 4 bundle integrity/path tests passed, plus lint and typecheck.
-- Full build and Git preview verification pending.
+- Local full build passed. Fresh Vercel Git deployment dpl_GWFJnfJM9ajue8JVywwD4mw9ceZe
+  for commit 88eaa7a is READY: pnpm 11.21.0, Next.js 16.4.3, all 502 assets verified.
+- Public preview: https://transit-pulse-emw2jwnfw-benito-3af53aa4.vercel.app/replay
+- Chrome desktop/mobile map/playback/end-seek/restart/table checks passed while all API requests
+  were blocked; no page errors or mobile overflow. All seven replay files plus GTFS index/one
+  route file matched the pinned checksums on the deployed site.
+- Live API separately returned 502. AWS reports Server.SpotInstanceShutdown at 15:58:09 UTC,
+  with persistent Spot request open/capacity-not-available. This does not affect packaged replay.
+- No new compute, storage volumes, bucket policies or full raw-log downloads were needed.
