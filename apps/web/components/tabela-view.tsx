@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { selectionHref, useDataSource } from "@/hooks/data-source";
+import { useReplayRows, useReplayView } from "@/hooks/use-playback";
 import { useDashboardParams } from "@/hooks/use-dashboard-params";
 import { filterByLine, formatCount, useLatestVehicles, type VehicleRow } from "@/hooks/use-latest-vehicles";
 import StatusStrip from "./status-strip";
@@ -15,15 +17,19 @@ const NO_ROWS: VehicleRow[] = [];
 // shows the same vehicles; the box below narrows further by line prefix.
 export default function TabelaView() {
   const { data, isPending } = useLatestVehicles();
-  const { linha, clearLine } = useDashboardParams();
+  const params = useDashboardParams();
+  const { linha, clearLine } = params;
+  const source = useDataSource();
+  const view = useReplayView();
+  const replayRows = useReplayRows(view);
   const [prefix, setPrefix] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
 
-  const all = data?.rows ?? NO_ROWS;
+  const all = replayRows ?? data?.rows ?? NO_ROWS;
   const ofLine = linha === null ? all : all.filter((r) => r.line === linha);
   const rows = filterByLine(ofLine, prefix);
   const filtered = prefix.trim() !== "";
-  const backHref = linha === null ? "/" : `/?linha=${encodeURIComponent(linha)}`;
+  const backHref = selectionHref(source.mapHref, params);
 
   return (
     <>
@@ -31,7 +37,7 @@ export default function TabelaView() {
         <Link href={backHref} className="w-fit rounded-md border border-borda bg-morro px-3 py-1.5 text-sm font-medium hover:bg-morro-alto">
           ◂ Voltar ao mapa
         </Link>
-        <h1 className="text-2xl font-semibold">Veículos no último minuto gravado</h1>
+        <h1 className="text-2xl font-semibold">{source.kind === "replay" ? "Veículos na gravação" : "Veículos no último minuto gravado"}</h1>
         <StatusStrip />
       </header>
 

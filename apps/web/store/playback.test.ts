@@ -129,3 +129,19 @@ describe("createPlaybackStore", () => {
     expect(calls).toBe(0);
   });
 });
+
+describe("packaged replay", () => {
+  it("never becomes live when playback reaches the end or goLive is requested", () => {
+    const store = createPlaybackStore(null, true);
+    const actions = store.getState().actions;
+    expect(store.getState().mode).toBe("replay");
+    actions.clamp(BOUNDS);
+    actions.play(BOUNDS);
+    actions.advance(BOUNDS.lastMs - BOUNDS.firstMs + 1, BOUNDS);
+    expect(store.getState()).toMatchObject({ mode: "replay", playing: false, playhead: BOUNDS.lastMs });
+    actions.goLive();
+    expect(store.getState().mode).toBe("replay");
+    actions.play(BOUNDS);
+    expect(store.getState()).toMatchObject({ mode: "replay", playing: true, playhead: BOUNDS.firstMs });
+  });
+});

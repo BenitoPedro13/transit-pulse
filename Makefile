@@ -1,4 +1,4 @@
-.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles gtfs gtfs-export deploy
+.PHONY: up down dev test lint fmt web-dev web-build adapter-its consumer rebuild api tiles gtfs gtfs-export deploy pull-raw gtfs-raw-upload
 
 GO_DIRS = $$(go list -f '{{.Dir}}' ./...)
 
@@ -88,3 +88,11 @@ tiles:
 # the box through SSM. Refuses a dirty tree. Needs `aws login` and Docker (TASK-aws-infra.md §2.4).
 deploy:
 	scripts/deploy.sh
+
+# Exit runbook: copy the raw log and manifests from S3 to var/s3-raw and check every manifest line.
+pull-raw:
+	scripts/pull-raw.sh
+
+# Ship the GTFS raw log (written on this Mac) to S3 and seal it with a manifest line. Never prunes.
+gtfs-raw-upload:
+	python3 infra/aws/raw-sync.py --root var/raw/gtfs --bucket transit-pulse-raw-$$(aws sts get-caller-identity --query Account --output text) --prefix raw/gtfs/ --manifest-ns gtfs/ --seal-hours 0 --no-prune

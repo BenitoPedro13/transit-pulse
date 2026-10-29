@@ -64,6 +64,12 @@ export function basemapStyle(scheme: ColorScheme): StyleSpecification {
   return style;
 }
 
+// Where rio.pmtiles lives. Production sets NEXT_PUBLIC_TILES_BASE_URL (the S3 tiles bucket, see
+// docs/tasks/TASK-aws-infra.md §2.7); unset, it is the local `make tiles` copy served by the app.
+function tilesBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_TILES_BASE_URL ?? `${window.location.origin}/tiles`;
+}
+
 // Absolute URL: the pmtiles protocol handler fetches it outside the page's base URL. The sprite
 // follows the scheme so icons (and their halos) match the map.
 function buildStyle(scheme: ColorScheme): StyleSpecification {
@@ -74,7 +80,7 @@ function buildStyle(scheme: ColorScheme): StyleSpecification {
     sources: {
       protomaps: {
         type: "vector",
-        url: `pmtiles://${window.location.origin}/tiles/rio.pmtiles`,
+        url: `pmtiles://${tilesBaseUrl()}/rio.pmtiles`,
         attribution:
           '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
       },

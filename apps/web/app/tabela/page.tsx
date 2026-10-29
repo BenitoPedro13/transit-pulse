@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import PlaybackProvider from "@/components/playback-provider";
 import TabelaView from "@/components/tabela-view";
 
 export const metadata: Metadata = {
@@ -11,7 +12,7 @@ export default function TabelaPage() {
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4">
       <Suspense fallback={<p className="text-sm text-neblina">Carregando…</p>}>
-        <TabelaView />
+        <PlaybackProvider><TabelaView /></PlaybackProvider>
       </Suspense>
     </main>
   );

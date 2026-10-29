@@ -1,3 +1,4 @@
+import { useDataSource } from "./data-source";
 import { useQuery } from "@tanstack/react-query";
 import { snapshotQueryOptions, type Snapshot, type Vehicle } from "./use-latest-vehicles";
 import { compareLines } from "./use-lines";
@@ -91,5 +92,5 @@ export function formatPercent(share: number): string {
 const selectFleetStats = (snapshot: Snapshot): FleetStats => fleetStats(snapshot.vehicles);
 
 export function useFleetStats(): FleetStats | undefined {
-  return useQuery({ ...snapshotQueryOptions, select: selectFleetStats }).data;
+  return useQuery({ ...snapshotQueryOptions(useDataSource()), select: selectFleetStats }).data;
 }

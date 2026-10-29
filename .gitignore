@@ -39,3 +39,6 @@ apps/web/public/gtfs/
 *.tfvars
 !*.tfvars.example
 .vercel/
+
+# Recorded replay bundles are generated and included in the deployment artifact.
+apps/web/public/replay-data/

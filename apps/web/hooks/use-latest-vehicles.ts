@@ -1,4 +1,5 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
+import { LIVE_SOURCE, snapshotUrl, useDataSource, type DataSource } from "./data-source";
 
 // The response of GET /api/v1/vehicles/latest (apps/api, docs/tasks/TASK-live-map.md §2.3).
 // null stays null: a missing speed is not a speed of 0.
@@ -157,23 +158,28 @@ export function formatCoverage(c: Coverage): string {
 
 // The request itself, with no select: every derived hook (fleet stats, line index, ...) reads this
 // one query through its own module-level select, so there is a single fetch and a single cache entry.
-export const snapshotQueryOptions = queryOptions({
-  queryKey: ["vehicles", "latest"],
-  queryFn: async (): Promise<Snapshot> => {
-    const res = await fetch("/api/v1/vehicles/latest");
-    if (!res.ok) throw new Error(`GET /api/v1/vehicles/latest answered ${res.status}`);
-    return res.json();
-  },
-  // The data changes once a minute; the API answers from memory (and 304 when nothing moved).
-  refetchInterval: 30_000,
+export function snapshotQueryOptions(source: DataSource = LIVE_SOURCE) {
+  return queryOptions({
+    queryKey: ["vehicles", "latest", source.base],
+    queryFn: async ({ signal }): Promise<Snapshot> => {
+      const url = snapshotUrl(source);
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`GET ${url} answered ${res.status}`);
+      return res.json();
+    },
+    refetchInterval: source.kind === "replay" ? false : 30_000,
+    staleTime: source.kind === "replay" ? Infinity : 30_000,
+  });
+}
+
+const selectLatest = (snapshot: Snapshot): LatestVehicles => ({
+  snapshot, rows: toRows(snapshot), labels: operatorLabels(snapshot),
 });
 
-export const latestVehiclesQueryOptions = queryOptions({
-  ...snapshotQueryOptions,
-  // Rows are derived once per response; select is a module-level function so its result is cached.
-  select: (snapshot): LatestVehicles => ({ snapshot, rows: toRows(snapshot), labels: operatorLabels(snapshot) }),
-});
+export function latestVehiclesQueryOptions(source: DataSource = LIVE_SOURCE) {
+  return queryOptions({ ...snapshotQueryOptions(source), select: selectLatest });
+}
 
 export function useLatestVehicles() {
-  return useQuery(latestVehiclesQueryOptions);
+  return useQuery(latestVehiclesQueryOptions(useDataSource()));
 }

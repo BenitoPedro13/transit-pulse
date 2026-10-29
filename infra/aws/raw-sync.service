@@ -1,0 +1,8 @@
+[Unit]
+Description=Ship the raw log to S3, seal old hours, prune the local copy
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/transit-pulse/raw-sync.env
+ExecStart=/usr/bin/python3 /opt/transit-pulse/raw-sync.py --root /data/raw --bucket ${RAW_BUCKET} --prefix raw/ --seal-hours 25 --prune-days 4 --metrics
