@@ -79,3 +79,10 @@ the Free plan account expires; do not assume this account provides perpetual fre
 - Compatible Next.js/eslint-config-next patch to 16.4.3 applied for verified advisories.
 - cfn/compute instance size, EBS size and live-route behavior were not enlarged/replaced.
 - Remaining dependency audit findings outside Next.js are documented, not silently declared fixed.
+
+- Published to existing Vercel production project after refreshing expired CLI authentication:
+  deployment dpl_14rZGbjJjsQ3h6CW5eKwBqzpoD36, alias transit-pulse-tau.vercel.app.
+- The same desktop/mobile browser checks passed on the public replay and table with /api
+  requests blocked: zero API requests/page errors, no mobile overflow.
+- Full archive remains in S3; no bulk raw folder exists on the Mac. Temporary local database,
+  API and anonymous volume were removed after the approximately 8 MB capture was exported.
