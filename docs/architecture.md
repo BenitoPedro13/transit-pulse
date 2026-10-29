@@ -245,33 +245,19 @@ backend off:
    per minute, a per-minute coverage record. The API serves it from memory; the replay export will
    write the same files to S3, and the time machine in the web app reads either.
 
-### 7.1 Account lifetime (Free plan)
+### 7.1 Account lifetime and archive location
 
-The AWS account is on the Free plan (user, 2026-10-12). It **closes after 6 months (around
-2027-03-27) or when its credits run out, whichever comes first.** Its content is deleted 90
-days after that. "Kept forever" therefore means that the raw log survives the account, not
-that S3 does:
+The account is on the Free plan and ends around 2027-03-27 or when shared credits run out.
+**User decision, 2026-10-29:** keep the full raw archive off the Mac. S3 retains the complete
+recording and checksum manifests; a small selected replay bundle is enough for the public demo.
+Server copies older than four days are reclaimed only after byte/manifest/remote checksum
+verification. The stable raw-sync service runs every ten minutes.
 
-- **The durable copy of the raw log is the user's machine.** S3 is the working copy.
-- **Before the account closes:** `aws s3 sync` the raw prefix to the Mac, verify the byte
-  counts and SHA-256 checksums against a manifest, and keep a second local copy (an external
-  drive). Then recreate the stack in a new Free-plan account and re-upload whatever the
-  replay needs. `[VERIFY: AWS's current Free-plan terms on opening a new account]`
-- **The credits are shared by three projects,** so they may run out before month 6. Rough
-  monthly figures: this project ~USD 12, renewable-pulse ~USD 12, Apuração ~USD 40 in
-  total. The account's Budgets alarm has to watch the total, not one project's share.
-  `[VERIFY: remaining credit in the Billing console]`
-- **The replay must survive a move between accounts.** A CloudFront `*.cloudfront.net` URL
-  changes with the account, so a portfolio link pointing at it breaks. Replay files are read
-  from one configurable base URL, and the public link goes through something that outlives
-  the account: the Next.js site's own domain, or the Vercel deploy. That's decided in the
-  replay task.
-- **Everything else is rebuildable** (invariant 2): database rows and aggregates are
-  recomputed from the raw log in the new account. They're never migrated by hand.
-- **Size of the move (estimated 2026-10-12):** after a ~4-month (122-day) run the raw log is
-  about **65 GB** gzip-compressed with the ITS API alone, or about **80 GB** with GTFS-RT
-  kept as well. Downloading it fits AWS's 100 GB/month free egress if done in one month.
-  Re-uploading for the replay needs only the chosen days, about 0.5 GB each.
+Before this account expires, choose an approved durable remote destination or paid continuation,
+copy the archive there and verify checksums. Do not assume another Free-plan account is available.
+The archive must outlive the account; see [replay runbook](replay.md) for the exact current state,
+compact capture, recovery evidence and exit requirements. The public Vercel link outlives the
+AWS backend. Its recorded routes use configurable static files, not hardcoded account URLs.
 
 ## 8. Retention (decided 2026-10-12)
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { selectionHref, useDataSource } from "@/hooks/data-source";
 import { letreiroText } from "@/hooks/letreiro-text";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useDashboardParams } from "@/hooks/use-dashboard-params";
@@ -36,6 +37,7 @@ const NO_ROWS: VehicleRow[] = [];
 // panel tab is open, Seguir, and whether the phone panel is expanded.
 export default function Dashboard() {
   const params = useDashboardParams();
+  const source = useDataSource();
   const { data } = useLatestVehicles();
   const status = useVehicleStatus();
   const view = useReplayView();
@@ -132,7 +134,7 @@ export default function Dashboard() {
   }
 
   const when = replay ? "neste momento da reprodução" : "no último minuto gravado";
-  const tableHref = params.linha ? `/tabela?linha=${encodeURIComponent(params.linha)}` : "/tabela";
+  const tableHref = selectionHref(source.tableHref, params);
 
   return (
     <main
@@ -148,6 +150,9 @@ export default function Dashboard() {
         <Letreiro text={text} />
         <div className="flex w-full items-start justify-between gap-2">
           <StatusStrip />
+          <Link href={source.kind === "replay" ? "/" : "/replay"} className="pointer-events-auto rounded-md border border-borda bg-morro px-3 py-1.5 text-xs text-calcadao hover:bg-morro-alto">
+            {source.kind === "replay" ? "Mapa ao vivo" : "Ver gravação"}
+          </Link>
           <Link
             href={tableHref}
             className="pointer-events-auto shrink-0 rounded-md border border-borda bg-morro px-3 py-1.5 text-sm font-medium text-calcadao hover:bg-morro-alto lg:fixed lg:right-4 lg:bottom-[11rem]"

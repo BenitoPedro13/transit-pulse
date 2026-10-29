@@ -39,6 +39,7 @@ umask 022
 
 # --- raw log shipping (docs/tasks/TASK-aws-infra.md §2.5) -------------------------------------
 echo "RAW_BUCKET=transit-pulse-raw-${ACCOUNT}" > "${BASE}/raw-sync.env"
+install -m 0755 "${REL}/infra/aws/raw-sync.py" /opt/transit-pulse/raw-sync.py
 install -m 0644 "${REL}/infra/aws/raw-sync.service" /etc/systemd/system/raw-sync.service
 install -m 0644 "${REL}/infra/aws/raw-sync.timer" /etc/systemd/system/raw-sync.timer
 systemctl daemon-reload

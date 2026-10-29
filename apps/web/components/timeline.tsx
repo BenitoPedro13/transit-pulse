@@ -99,11 +99,11 @@ export default function Timeline({ expanded, className = "" }: { expanded: boole
         variant={live ? "outline" : "default"}
         size="sm"
         className="order-3 shrink-0 font-semibold max-lg:group-data-[expanded=true]/tl:ml-auto lg:order-4"
-        disabled={live}
-        aria-label={live ? "Ao vivo" : "Voltar ao vivo"}
+        disabled={c.replayOnly ? !c.ready : live}
+        aria-label={c.replayOnly ? "Recomeçar gravação" : live ? "Ao vivo" : "Voltar ao vivo"}
         onClick={c.goLive}
       >
-        {live ? <span aria-hidden="true">● </span> : null}AO VIVO
+        {live ? <span aria-hidden="true">● </span> : null}{c.replayOnly ? "RECOMEÇAR" : "AO VIVO"}
       </Button>
 
       {!live && !expanded && (

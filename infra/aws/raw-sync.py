@@ -165,6 +165,12 @@ def main():
                 have = manifests.get(mkey, {}).get(a.prefix + rel)
                 hour_end = datetime(int(y), int(mo), int(d), int(h), tzinfo=timezone.utc).timestamp() + 3600
                 if have and have[1] == os.path.getsize(p) and now - hour_end >= a.prune_days * 86400:
+                    # A previously sealed same-size file may have changed locally. Recheck
+                    # against both the manifest and current remote checksum before unlinking.
+                    if verify_remote(a.bucket, a.prefix + rel, p, have[1]) != have[0]:
+                        print(f"checksum mismatch, keeping local copy: {rel}", file=sys.stderr)
+                        ok = False
+                        continue
                     os.remove(p)
                     print(f"pruned {rel}")
 

@@ -1,3 +1,4 @@
+import { useDataSource } from "./data-source";
 import { useQuery } from "@tanstack/react-query";
 import { snapshotQueryOptions, useLatestVehicles, type Snapshot, type Vehicle, type VehicleRow } from "./use-latest-vehicles";
 
@@ -72,7 +73,7 @@ export function matchLines(lines: LineEntry[], query: string): LineEntry[] {
 const selectLineIndex = (snapshot: Snapshot): LineIndex => toLineIndex(snapshot.vehicles);
 
 export function useLineIndex(): LineIndex | undefined {
-  return useQuery({ ...snapshotQueryOptions, select: selectLineIndex }).data;
+  return useQuery({ ...snapshotQueryOptions(useDataSource()), select: selectLineIndex }).data;
 }
 
 // One line's vehicles, ordered by vehicle ID (natural order).

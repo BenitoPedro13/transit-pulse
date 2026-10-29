@@ -1,5 +1,11 @@
 # Transit Pulse
 
+[Open the recorded demo](https://transit-pulse-tau.vercel.app/replay) · [Live map](https://transit-pulse-tau.vercel.app/)
+
+**Operations (2026-10-29):** the recorded demo works without the live backend. Production raw
+recordings are checksum-verified in S3 and old local server copies are reclaimed automatically.
+See [replay and archive runbook](docs/replay.md).
+
 A live public-transport map for **Greater Rio de Janeiro**. It starts with the city's buses
 and BRT, then adds the state-run trains, metro, tram, ferries and intercity buses. Every
 operator is shown honestly as **live**, **scheduled only** or **no public data**.
@@ -33,7 +39,7 @@ table at `/tabela` as the non-map alternative (plans and measurements in
 ([`docs/tasks/TASK-time-machine.md`](docs/tasks/TASK-time-machine.md)). Selected lines also have static GTFS routes,
 destination variants and an ordered stop list (D3,
 [`docs/tasks/TASK-line-routes.md`](docs/tasks/TASK-line-routes.md)); the reference geometry stays available
-in live and replay views. The raw log isn't uploaded to S3 yet.
+in live and replay views. The production raw log now ships to S3 with checksum manifests every ten minutes.
 
 ## Setup
 

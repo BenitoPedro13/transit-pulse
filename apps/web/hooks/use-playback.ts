@@ -1,3 +1,4 @@
+import { useDataSource } from "./data-source";
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { usePlaybackStore } from "@/store/playback-context";
@@ -119,6 +120,7 @@ export function useReplayFrame(): ReplayFrame | null {
 
 // What the timeline needs: the state, and every action with the window's bounds already applied.
 export function usePlaybackControls() {
+  const replayOnly = useDataSource().kind === 'replay';
   const store = usePlaybackStore();
   const history = useHistoryWindow();
   const mode = usePlaybackMode();
@@ -136,6 +138,7 @@ export function usePlaybackControls() {
   const index = !window ? 0 : mode === "live" ? lastIndex : Math.min(lastIndex, Math.max(0, (minuteMs - window.firstMinuteMs) / MINUTE_MS));
 
   return {
+    replayOnly,
     ready: window !== null,
     status: history.kind,
     window,
@@ -152,10 +155,13 @@ export function usePlaybackControls() {
     },
     seekIndex: (i: number) => {
       if (!window) return;
-      if (i >= lastIndex) actions.goLive();
+      if (i >= lastIndex && !replayOnly) actions.goLive();
       else actions.seek(window.firstMinuteMs + i * MINUTE_MS + MINUTE_MS);
     },
-    goLive: actions.goLive,
+    goLive: () => {
+      if (replayOnly) { if (bounds) actions.seek(bounds.firstMs); }
+      else actions.goLive();
+    },
     setSpeed: actions.setSpeed,
     setSmoothing: actions.setSmoothing,
   };

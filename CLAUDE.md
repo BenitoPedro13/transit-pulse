@@ -12,6 +12,12 @@
 
 ## 0. Project context — Transit Pulse
 
+**Operational update (2026-10-29):** /replay and /replay/tabela serve a compact, real recorded
+window without API requests. Live collection remains available; periodic verified S3 shipping
+and four-day server pruning are enabled. Full archives stay in S3: the user explicitly
+declined bulk Mac downloads. See docs/replay.md. Next.js is patched to 16.4.3.
+
+
 A live public-transport map for **Greater Rio de Janeiro**. It's a portfolio case study in
 **distributed, data-heavy real-time systems**:
 
@@ -89,8 +95,8 @@ the identity; ITS API only). #11 remains open; #12 is closed for reference geome
   - The live service is switched off after a while, so the case study must still work with
     the backend off.
   - Raw positions go to S3 as compressed files and are kept forever. The AWS account is on
-    the Free plan, so before it closes the raw log is downloaded to the user's machine and the
-    stack moves to a new account (`docs/architecture.md` §7.1).
+    the Free plan, so before it closes the archive must be verified in an approved durable remote destination
+    or retained through an approved paid-plan continuation (`docs/architecture.md` §7.1).
   - A few chosen days are exported as a static replay on S3 + CloudFront, and the site says
     plainly that it's a replay.
 - **Storage discipline.**

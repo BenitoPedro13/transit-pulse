@@ -78,16 +78,17 @@ export type PlaybackStore = ReturnType<typeof createPlaybackStore>;
 
 // A new store per mount (the provider makes it), never a module-level one: on the server that would be
 // shared by every request. `startAt` is a playhead from the URL, or null for live.
-export function createPlaybackStore(startAt: number | null) {
+export function createPlaybackStore(startAt: number | null, replayOnly = false) {
   return createStore<PlaybackStoreState>()((set) => {
     // One tiny wrapper per transition: apply it to the state, and keep the same object when nothing changed.
     const apply = (f: (s: PlaybackState) => PlaybackState) =>
       set((s) => {
         const next = f(s);
-        return next === s ? s : next;
+        if (next === s) return s;
+        return replayOnly && next.mode === 'live' ? { ...next, mode: 'replay' } : next;
       });
     return {
-      mode: startAt === null ? "live" : "replay",
+      mode: startAt === null && !replayOnly ? "live" : "replay",
       playhead: startAt ?? 0,
       playing: false,
       speed: 10,

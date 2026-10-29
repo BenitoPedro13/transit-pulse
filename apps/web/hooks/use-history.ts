@@ -1,3 +1,4 @@
+import { historyUrl, LIVE_SOURCE, useDataSource, type DataSource } from "./data-source";
 import { queryOptions, useQuery, useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { buildWindow, type HistoryIndex, type HistoryWindow, type HourFile } from "./history-window";
 
@@ -6,15 +7,16 @@ import { buildWindow, type HistoryIndex, type HistoryWindow, type HourFile } fro
 
 const REFRESH_MS = 30_000;
 
-export function historyIndexOptions() {
+export function historyIndexOptions(source: DataSource = LIVE_SOURCE) {
   return queryOptions({
-    queryKey: ["history", "index"],
+    queryKey: ["history", "index", source.base],
     queryFn: async (): Promise<HistoryIndex> => {
-      const res = await fetch("/api/v1/history");
+      const res = await fetch(historyUrl(source));
       if (!res.ok) throw new Error(`GET /api/v1/history answered ${res.status}`);
       return res.json();
     },
-    refetchInterval: REFRESH_MS,
+    refetchInterval: source.kind === 'replay' ? false : REFRESH_MS,
+    staleTime: source.kind === 'replay' ? Infinity : REFRESH_MS,
   });
 }
 
@@ -28,12 +30,12 @@ export function hourPath(hourUtc: string): string {
   return hourUtc.slice(0, 13);
 }
 
-export function historyHourOptions(hourUtc: string) {
-  const queryKey = ["history", "hour", hourUtc] as const;
+export function historyHourOptions(hourUtc: string, source: DataSource = LIVE_SOURCE) {
+  const queryKey = ["history", "hour", hourUtc, source.base] as const;
   return queryOptions({
     queryKey,
     queryFn: async ({ client, signal }): Promise<HourEntry> => {
-      const res = await fetch(`/api/v1/history/${hourPath(hourUtc)}`, { signal });
+      const res = await fetch(historyUrl(source, hourPath(hourUtc)), { signal });
       if (!res.ok) throw new Error(`GET /api/v1/history/${hourPath(hourUtc)} answered ${res.status}`);
       const etag = res.headers.get("ETag");
       const previous = client.getQueryData<HourEntry>(queryKey);
@@ -42,8 +44,8 @@ export function historyHourOptions(hourUtc: string) {
     },
     // A closed hour older than the backfill window can't change (complete: true); the current one is
     // refreshed every 30 s, the API's own cache time.
-    staleTime: (query) => (query.state.data?.file.complete ? Infinity : REFRESH_MS),
-    refetchInterval: (query) => (query.state.data?.file.complete ? false : REFRESH_MS),
+    staleTime: (query) => (source.kind === 'replay' || query.state.data?.file.complete ? Infinity : REFRESH_MS),
+    refetchInterval: (query) => (source.kind === 'replay' || query.state.data?.file.complete ? false : REFRESH_MS),
     // Compared by ETag above; a deep comparison of 150 k fixes would only cost time.
     structuralSharing: false,
   });
@@ -85,9 +87,10 @@ export function combineHours(results: Pick<UseQueryResult<HourEntry>, "data" | "
 // Everything the API holds, as one window. An hour that fails to load leaves its minutes as gaps; if
 // none loads the state is "error", which is not the same as "loading".
 export function useHistoryWindow(): HistoryState {
-  const index = useQuery(historyIndexOptions());
+  const source = useDataSource();
+  const index = useQuery(historyIndexOptions(source));
   const hours = index.data?.hours ?? NO_HOURS;
-  const files = useQueries({ queries: hours.map(historyHourOptions), combine: combineHours });
+  const files = useQueries({ queries: hours.map((hour) => historyHourOptions(hour, source)), combine: combineHours });
   if (!index.data) return index.isError ? ERROR : LOADING;
   return files;
 }
